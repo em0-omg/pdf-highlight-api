@@ -4,7 +4,12 @@
 
 ## プロジェクト概要
 
-これは Python 3.13 で構築された PDF ハイライト API プロジェクトで、現在初期開発段階にあります。このプロジェクトはモダンな Python パッケージ管理に `uv` を使用し、PDF ハイライト処理の API 機能を提供するよう設定されています。
+これは Python 3.13 で構築された PDF ハイライト API プロジェクトです。FastAPI を使用してRESTful API を提供し、PyMuPDF (fitz) を使用してPDFファイルの中央にハイライトマークを追加する機能を実装しています。このプロジェクトはモダンな Python パッケージ管理に `uv` を使用しています。
+
+### 主な機能
+- PDFファイルのアップロード
+- PDF の全ページ中央にハイライト円を自動追加
+- ハイライト済みPDFファイルのダウンロード
 
 ## 必須コマンド
 
@@ -42,12 +47,24 @@ pytest
 
 - **Pythonバージョン**: 3.13（.python-versionで指定）
 - **パッケージマネージャー**: uv（pip/poetryのモダンな代替）
-- **エントリーポイント**: main.py に基本的なアプリケーション構造が含まれています
+- **Webフレームワーク**: FastAPI（高性能なASYNCIO対応）
+- **PDF処理**: PyMuPDF (fitz) - PDFの読み書きとハイライト機能
+- **エントリーポイント**: main.py に FastAPI アプリケーションが実装されています
 - **設定**: pyproject.toml は PEP 518 標準に従います
+
+### API エンドポイント
+- `GET /` - ヘルスチェック
+- `POST /highlight-pdf` - PDFファイルの中央にハイライトを追加
 
 ## 開発セットアップ
 
-現在プロジェクトは pyproject.toml に最小限の依存関係が定義されています。機能を追加する際に検討すべき一般的な開発ツール：
+現在プロジェクトは pyproject.toml に以下の主要な依存関係が定義されています：
+- fastapi: Webフレームワーク
+- uvicorn: ASGIサーバー  
+- pymupdf: PDF処理ライブラリ
+- python-multipart: ファイルアップロード処理
+
+機能を追加する際に検討すべき一般的な開発ツール：
 
 ```bash
 uv add --dev pytest black isort mypy ruff

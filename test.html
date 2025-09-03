@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PDF Highlight API - Test Client</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        background-color: #f5f5f5;
+      }
+      .container {
+        background: white;
+        padding: 30px;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+      h1 {
+        color: #333;
+        text-align: center;
+        margin-bottom: 30px;
+      }
+      .upload-section {
+        border: 2px dashed #ddd;
+        border-radius: 10px;
+        padding: 40px;
+        text-align: center;
+        margin-bottom: 20px;
+      }
+      .file-input {
+        margin: 20px 0;
+      }
+      input[type="file"] {
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        width: 100%;
+        box-sizing: border-box;
+      }
+      .upload-btn {
+        background-color: #007bff;
+        color: white;
+        padding: 12px 30px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 16px;
+        margin-top: 10px;
+      }
+      .upload-btn:hover {
+        background-color: #0056b3;
+      }
+      .upload-btn:disabled {
+        background-color: #ccc;
+        cursor: not-allowed;
+      }
+      .status {
+        margin-top: 20px;
+        padding: 10px;
+        border-radius: 5px;
+        display: none;
+      }
+      .status.success {
+        background-color: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
+      }
+      .status.error {
+        background-color: #f8d7da;
+        color: #721c24;
+        border: 1px solid #f5c6cb;
+      }
+      .status.loading {
+        background-color: #d1ecf1;
+        color: #0c5460;
+        border: 1px solid #bee5eb;
+      }
+      .download-link {
+        display: inline-block;
+        margin-top: 10px;
+        padding: 8px 16px;
+        background-color: #28a745;
+        color: white;
+        text-decoration: none;
+        border-radius: 5px;
+      }
+      .download-link:hover {
+        background-color: #218838;
+      }
+      .info {
+        background-color: #e7f3ff;
+        border-left: 4px solid #007bff;
+        padding: 15px;
+        margin-bottom: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>PDF Highlight API - Test Client</h1>
+
+      <div class="info">
+        <strong>使用方法:</strong><br />
+        1. PDFファイルを選択<br />
+        2. "Upload & Highlight" ボタンをクリック<br />
+        3. 処理完了後、ハイライト済みPDFをダウンロード
+      </div>
+
+      <div class="upload-section">
+        <h3>📄 PDF ファイルを選択してください</h3>
+        <div class="file-input">
+          <input type="file" id="pdfFile" accept=".pdf" />
+        </div>
+        <button class="upload-btn" id="uploadBtn" onclick="uploadPDF()">
+          Upload & Highlight
+        </button>
+      </div>
+
+      <div class="status" id="status"></div>
+    </div>
+
+    <script>
+      const API_BASE_URL = "http://localhost:8000";
+
+      function showStatus(message, type) {
+        const statusDiv = document.getElementById("status");
+        statusDiv.textContent = message;
+        statusDiv.className = `status ${type}`;
+        statusDiv.style.display = "block";
+      }
+
+      function hideStatus() {
+        const statusDiv = document.getElementById("status");
+        statusDiv.style.display = "none";
+      }
+
+      async function uploadPDF() {
+        const fileInput = document.getElementById("pdfFile");
+        const uploadBtn = document.getElementById("uploadBtn");
+
+        if (!fileInput.files[0]) {
+          showStatus("PDFファイルを選択してください", "error");
+          return;
+        }
+
+        const file = fileInput.files[0];
+        if (!file.name.toLowerCase().endsWith(".pdf")) {
+          showStatus("PDFファイルを選択してください", "error");
+          return;
+        }
+
+        uploadBtn.disabled = true;
+        uploadBtn.textContent = "Processing...";
+        showStatus("PDFを処理中...", "loading");
+
+        const formData = new FormData();
+        formData.append("file", file);
+
+        try {
+          const response = await fetch(`${API_BASE_URL}/highlight-pdf`, {
+            method: "POST",
+            body: formData,
+          });
+
+          if (response.ok) {
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const originalName = file.name.replace(".pdf", "");
+            const downloadName = `highlighted_${originalName}.pdf`;
+
+            showStatus(
+              "処理完了！ダウンロードリンクをクリックしてください。",
+              "success"
+            );
+
+            const downloadLink = document.createElement("a");
+            downloadLink.href = url;
+            downloadLink.download = downloadName;
+            downloadLink.className = "download-link";
+            downloadLink.textContent = `📥 ${downloadName} をダウンロード`;
+
+            const statusDiv = document.getElementById("status");
+            statusDiv.appendChild(document.createElement("br"));
+            statusDiv.appendChild(downloadLink);
+          } else {
+            const errorData = await response.json();
+            showStatus(`エラー: ${errorData.detail}`, "error");
+          }
+        } catch (error) {
+          console.error("Error:", error);
+          showStatus(
+            "APIサーバーに接続できません。サーバーが起動していることを確認してください。",
+            "error"
+          );
+        } finally {
+          uploadBtn.disabled = false;
+          uploadBtn.textContent = "Upload & Highlight";
+        }
+      }
+
+      // ファイル選択時の処理
+      document
+        .getElementById("pdfFile")
+        .addEventListener("change", function (e) {
+          hideStatus();
+          if (e.target.files[0]) {
+            const fileName = e.target.files[0].name;
+            console.log("Selected file:", fileName);
+          }
+        });
+
+      // ドラッグ&ドロップの処理
+      const uploadSection = document.querySelector(".upload-section");
+
+      uploadSection.addEventListener("dragover", function (e) {
+        e.preventDefault();
+        uploadSection.style.borderColor = "#007bff";
+        uploadSection.style.backgroundColor = "#f8f9fa";
+      });
+
+      uploadSection.addEventListener("dragleave", function (e) {
+        e.preventDefault();
+        uploadSection.style.borderColor = "#ddd";
+        uploadSection.style.backgroundColor = "white";
+      });
+
+      uploadSection.addEventListener("drop", function (e) {
+        e.preventDefault();
+        uploadSection.style.borderColor = "#ddd";
+        uploadSection.style.backgroundColor = "white";
+
+        const files = e.dataTransfer.files;
+        if (files.length > 0 && files[0].name.toLowerCase().endsWith(".pdf")) {
+          document.getElementById("pdfFile").files = files;
+          hideStatus();
+        } else {
+          showStatus("PDFファイルをドロップしてください", "error");
+        }
+      });
+    </script>
+  </body>
+</html>

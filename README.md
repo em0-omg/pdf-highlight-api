@@ -4,10 +4,12 @@ Python 3.13とモダンなツールで構築された、PDFハイライト処理
 
 ## 機能
 
-- 高性能API用のFastAPIウェブフレームワーク
-- RESTful APIエンドポイント
-- Swagger UIによる自動API文書化
-- `uv`によるモダンなPythonパッケージ管理
+- **PDFハイライト処理**: アップロードされたPDFファイルの全ページ中央に黄色いハイライト円を自動追加
+- **ファイルアップロード**: multipart/form-data形式でのPDFファイル受信
+- **ファイルダウンロード**: 処理済みPDFファイルの即座ダウンロード
+- **FastAPIフレームワーク**: 高性能で非同期処理対応のWeb API
+- **自動API文書化**: Swagger UI/ReDocによる対話的なAPI文書
+- **モダンツール**: `uv`によるPythonパッケージ管理
 
 ## 必要要件
 
@@ -46,12 +48,12 @@ APIは `http://localhost:8000` でアクセス可能です。
 ### APIエンドポイント
 
 #### GET `/`
-シンプルなハローワールドメッセージを返します。
+APIのヘルスチェック用エンドポイント。
 
 **レスポンス:**
 ```json
 {
-  "message": "Hello World"
+  "message": "PDF Highlight API is running"
 }
 ```
 
@@ -59,6 +61,34 @@ APIは `http://localhost:8000` でアクセス可能です。
 ```bash
 curl http://localhost:8000/
 ```
+
+#### POST `/highlight-pdf`
+PDFファイルをアップロードして、全ページの中央にハイライト円を追加します。
+
+**リクエスト:**
+- Content-Type: `multipart/form-data`
+- Body: `file` (PDF ファイル)
+
+**レスポンス:**
+- Content-Type: `application/pdf`
+- ハイライトが追加されたPDFファイルが返されます
+
+**例:**
+```bash
+# cURLでPDFファイルをアップロード
+curl -X POST http://localhost:8000/highlight-pdf \
+  -F "file=@example.pdf" \
+  --output highlighted_example.pdf
+
+# Swagger UIを使用する場合
+# http://localhost:8000/docs にアクセスして
+# /highlight-pdf エンドポイントからファイルをアップロード
+```
+
+**機能詳細:**
+- 受信したPDFファイルの全ページを処理
+- 各ページの中央（width/2, height/2）に半径20の黄色いハイライト円を追加
+- 処理済みPDFを `highlighted_[元のファイル名]` として返却
 
 ## 開発
 
@@ -104,19 +134,23 @@ pdf-highlight-api/
 
 ## 技術スタック
 
-- **フレームワーク**: FastAPI
-- **ASGIサーバー**: Uvicorn
+- **フレームワーク**: FastAPI（高性能Web API）
+- **ASGIサーバー**: Uvicorn（非同期処理対応）
+- **PDF処理**: PyMuPDF (fitz) - PDF読み書きとハイライト機能
+- **ファイル処理**: python-multipart（ファイルアップロード）
 - **Pythonバージョン**: 3.13
 - **パッケージマネージャー**: uv
 - **設定**: pyproject.toml (PEP 518)
 
 ## 今後の開発
 
-このプロジェクトは初期開発段階です。予定されている機能:
-- PDFハイライトの抽出と管理
+基本的なPDFハイライト機能は実装済みです。今後の拡張予定:
+- ハイライトの位置、色、サイズのカスタマイズ
+- 複数のハイライトマーク（矩形、テキスト）の追加
+- PDFハイライト情報の抽出とメタデータ出力
 - 永続化ストレージのためのデータベース統合
 - 認証と認可
-- PDF操作のための追加APIエンドポイント
+- バッチ処理（複数ファイル同時処理）
 
 ## 貢献
 
