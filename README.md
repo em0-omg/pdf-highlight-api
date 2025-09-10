@@ -1,12 +1,15 @@
-# PDF Highlight API
+# PDF Analysis API
 
-Python 3.13とモダンなツールで構築された、PDF画像変換用のFastAPIベースのREST API。
+Python 3.13とモダンなツールで構築された、PDF分析・画像変換用のFastAPIベースのREST API。Google Gemini 2.5 Pro による高度なAI文書分析機能を提供します。
 
 ## 機能
 
+- **AI文書分析**: Google Gemini 2.5 Pro による包括的なPDF内容分析
 - **PDF画像変換**: Popplerを使用したPDFから画像への高品質変換
+- **リアルタイムプレビュー**: Base64エンコード画像の即座表示
+- **複数ページ対応**: 大容量PDFの並列処理と個別ページ分析
+- **インタラクティブUI**: test-pdf-to-image.html によるWebインターフェース
 - **ファイルアップロード**: multipart/form-data形式でのPDFファイル受信
-- **ファイルダウンロード**: 変換済み画像ファイルの即座ダウンロード
 - **FastAPIフレームワーク**: 高性能で非同期処理対応のWeb API
 - **自動API文書化**: Swagger UI/ReDocによる対話的なAPI文書
 - **Docker対応**: コンテナ化された開発・本番環境
@@ -17,6 +20,8 @@ Python 3.13とモダンなツールで構築された、PDF画像変換用のFas
 - Python 3.13+
 - uv（モダンなPythonパッケージマネージャー）
 - Docker/Docker Compose（Docker環境で実行する場合）
+- Google Gemini API Key（AI分析機能を使用する場合）
+- Poppler（PDF画像変換ライブラリ - Dockerに含まれています）
 
 ## インストール
 
@@ -69,12 +74,15 @@ APIは `http://localhost:8000` でアクセス可能です。
 ### APIエンドポイント
 
 #### GET `/`
-APIのヘルスチェック用エンドポイント。
+APIのヘルスチェック用エンドポイント。Gemini API の利用可能性も確認できます。
 
 **レスポンス:**
 ```json
 {
-  "message": "PDF Highlight API is running"
+  "message": "PDF Analysis API is running",
+  "gemini_available": true,
+  "status": "✅ Ready",
+  "setup_help": null
 }
 ```
 
@@ -83,31 +91,43 @@ APIのヘルスチェック用エンドポイント。
 curl http://localhost:8000/
 ```
 
-#### POST `/pdf-to-images`
-PDFファイルをすべてのページを画像に変換します。
+#### POST `/analyze-pdf`
+PDFファイルを画像に変換し、Gemini AIで包括的に分析します。
 
 **リクエスト:**
 - Content-Type: `multipart/form-data`
 - Body: 
   - `file` (PDF ファイル) - 必須
-  - `dpi` (整数) - 解像度（デフォルト: 200）
+- Query Parameters:
+  - `dpi` (整数) - 画像解像度（デフォルト: 200）
+  - `prompt` (文字列) - 分析指示（デフォルト: "この文書について説明してください。"）
 
 **レスポンス:**
-- 1ページの場合: PNG画像
-- 複数ページの場合: ZIPファイル（各ページがPNG画像）
+```json
+{
+  "filename": "example.pdf",
+  "total_pages": 3,
+  "analysis": "文書の詳細な分析結果...",
+  "images": [
+    {
+      "page": 1,
+      "image_data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgA..."
+    }
+  ],
+  "prompt": "この文書について説明してください。",
+  "dpi": 200
+}
+```
 
 **例:**
 ```bash
-# デフォルトDPI(200)で変換
-curl -X POST http://localhost:8000/pdf-to-images \
-  -F "file=@example.pdf" \
-  --output converted_images.zip
+# 基本的な分析
+curl -X POST "http://localhost:8000/analyze-pdf" \
+  -F "file=@example.pdf"
 
-# 高解像度(300 DPI)で変換
-curl -X POST http://localhost:8000/pdf-to-images \
-  -F "file=@example.pdf" \
-  -F "dpi=300" \
-  --output high_res_images.zip
+# カスタムプロンプトで分析
+curl -X POST "http://localhost:8000/analyze-pdf?prompt=この文書の要点を3つ挙げてください&dpi=300" \
+  -F "file=@example.pdf"
 ```
 
 
@@ -154,33 +174,64 @@ pytest
 ```
 pdf-highlight-api/
 ├── src/
-│   └── main.py        # FastAPIアプリケーションエントリーポイント
-├── pyproject.toml     # プロジェクト設定と依存関係
-├── .python-version    # Python バージョン指定
-├── Dockerfile         # Dockerイメージ定義（Python 3.13 + Poppler）
-├── docker-compose.yml # Docker Compose設定
-├── .dockerignore      # Docker用の除外ファイル設定
-├── CLAUDE.md          # AIアシスタント用指示
-└── README.md          # プロジェクト文書
+│   ├── infrastructure/
+│   │   └── gemini.py          # Gemini 2.5 Pro API連携サービス
+│   └── main.py                # FastAPIアプリケーションエントリーポイント
+├── test-pdf-to-image.html     # インタラクティブWebテストインターフェース
+├── pyproject.toml             # プロジェクト設定と依存関係（uv形式）
+├── .python-version            # Python 3.13バージョン指定
+├── .env.example               # 環境変数のサンプル（GEMINI_API_KEY）
+├── Dockerfile                 # Dockerイメージ定義（Python 3.13 + Poppler）
+├── docker-compose.yml         # Docker Compose設定
+├── .dockerignore              # Docker用の除外ファイル設定
+├── CLAUDE.md                  # Claude Code用プロジェクト指示
+└── README.md                  # プロジェクト文書
 ```
 
 ## 技術スタック
 
 - **フレームワーク**: FastAPI（高性能Web API）
 - **ASGIサーバー**: Uvicorn（非同期処理対応）
-- **PDF画像変換**: pdf2image + Poppler - 高品質なPDFから画像への変換
-- **画像処理**: Pillow - 画像の保存と操作
+- **AI分析エンジン**: Google Gemini 2.5 Pro（最新の多モーダルAI）
+- **PDF画像変換**: pdf2image + Poppler（高品質なPDFから画像への変換）
+- **画像処理**: Pillow（Base64エンコード、リサイズ、フォーマット変換）
 - **ファイル処理**: python-multipart（ファイルアップロード）
 - **コンテナ化**: Docker/Docker Compose
 - **Pythonバージョン**: 3.13
 - **パッケージマネージャー**: uv
 - **設定**: pyproject.toml (PEP 518)
 
+## セットアップ手順
+
+### 環境変数の設定
+AI分析機能を使用するには、Google Gemini API Keyが必要です：
+
+1. `.env.example` を `.env` にコピー:
+```bash
+cp .env.example .env
+```
+
+2. `.env` ファイルに API キーを設定:
+```bash
+GEMINI_API_KEY=your_api_key_here
+```
+
+3. API キーの取得: [Google AI Studio](https://makersuite.google.com/app/apikey)
+
+### Webインターフェースの使用
+`test-pdf-to-image.html` を開いてインタラクティブなWebインターフェースを使用できます：
+
+1. APIサーバーを起動
+2. ブラウザで `test-pdf-to-image.html` を開く
+3. PDFファイルをドラッグ&ドロップまたは選択
+4. 分析プロンプトとDPI設定を調整
+5. 「PDFを分析」ボタンをクリック
+
 ## 今後の開発
 
-PDF画像変換機能は実装済みです。今後の拡張予定:
+PDF分析機能は実装済みです。今後の拡張予定:
 - PDFハイライト機能の追加（PyMuPDF統合）
-- AI解析エンジンとの統合（OCR、テキスト解析、画像認識）
+- 複数分析タイプ（要約、重要ポイント抽出、テキスト抽出）
 - 画像変換の詳細オプション（フォーマット選択、品質調整など）
 - 特定ページの個別変換機能
 - 永続化ストレージのためのデータベース統合

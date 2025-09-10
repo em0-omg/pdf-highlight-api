@@ -4,12 +4,15 @@
 
 ## プロジェクト概要
 
-これは Python 3.13 で構築された PDF ハイライト API プロジェクトです。FastAPI を使用してRESTful API を提供し、PyMuPDF (fitz) を使用してPDFファイルにハイライトマークを追加する機能を実装しています。このプロジェクトはモダンな Python パッケージ管理に `uv` を使用しています。
+これは Python 3.13 で構築された PDF 分析 API プロジェクトです。FastAPI を使用してRESTful API を提供し、PDF ファイルを高品質な画像に変換し、Google Gemini AI を使用した文書内容の包括的な分析機能を提供します。このプロジェクトはモダンな Python パッケージ管理に `uv` を使用しています。
 
 ### 主な機能
-- PDFファイルのアップロード
-- PDFから画像への変換（Popplerを使用）
-- Gemini AIを使用したPDF・画像の内容分析
+- PDFファイルのアップロード（マルチパート形式）
+- PDFから画像への高品質変換（pdf2image + Poppler）
+- Google Gemini 2.5 Pro による AI 文書分析
+- リアルタイム画像プレビュー生成
+- 複数ページ対応の並列処理
+- インタラクティブなWebインターフェース（test-pdf-to-image.html）
 
 ## 必須コマンド
 
@@ -62,18 +65,18 @@ pytest
 - **Pythonバージョン**: 3.13（.python-versionで指定）
 - **パッケージマネージャー**: uv（pip/poetryのモダンな代替）
 - **Webフレームワーク**: FastAPI（高性能なASYNCIO対応）
-- **PDF処理**: PyMuPDF (fitz) - PDFの読み書きとハイライト機能
-- **PDF画像変換**: pdf2image + Poppler - PDFから画像への変換
-- **AI分析**: Google Gemini API - 画像・PDF内容の分析
+- **PDF画像変換**: pdf2image + Poppler - 高品質PDFから画像への変換
+- **AI分析エンジン**: Google Gemini 2.5 Pro - 最新の多モーダルAI分析
+- **画像処理**: Pillow - Base64エンコード、リサイズ、フォーマット変換
 - **エントリーポイント**: src/main.py に FastAPI アプリケーションが実装されています
 - **設定**: pyproject.toml は PEP 518 標準に従います
 - **コンテナ化**: DockerとDocker Composeによる開発環境
 
 ### API エンドポイント
-- `GET /` - ヘルスチェック
-- `POST /pdf-to-images` - PDFを画像に変換（複数ページ対応、ZIPまたは単一PNG）
-- `POST /analyze-pdf` - PDFをGeminiで分析（要GEMINI_API_KEY環境変数）
-- `POST /analyze-image` - 画像ファイルをGeminiで分析（要GEMINI_API_KEY環境変数）
+- `GET /` - ヘルスチェック（Gemini APIキー状態確認含む）
+- `POST /analyze-pdf` - PDFをGemini AIで分析（画像変換+AI分析+プレビュー）
+  - パラメータ: `file` (PDF), `dpi` (解像度), `prompt` (分析指示)
+  - レスポンス: 分析結果、画像プレビュー、メタデータ
 
 ### 環境変数
 - `GEMINI_API_KEY` - Google Gemini API key（分析機能を使用する場合は必須）
@@ -81,12 +84,13 @@ pytest
 ## 開発セットアップ
 
 現在プロジェクトは pyproject.toml に以下の主要な依存関係が定義されています：
-- fastapi: Webフレームワーク
-- uvicorn: ASGIサーバー  
+- fastapi: 高性能Webフレームワーク
+- uvicorn: ASGIサーバー（非同期処理対応）
 - python-multipart: ファイルアップロード処理
-- pdf2image: PDFから画像への変換ライブラリ
-- pillow: 画像処理ライブラリ
-- google-generativeai: Gemini API連携ライブラリ
+- pdf2image: PDFから画像への高品質変換ライブラリ
+- pillow: 画像処理・Base64エンコードライブラリ  
+- google-generativeai: Google Gemini 2.5 Pro API連携ライブラリ
+- pymupdf: PDF操作ライブラリ（将来のハイライト機能用）
 
 現在プロジェクトには以下の開発ツールが追加されています：
 - black: コードフォーマッター
@@ -103,14 +107,17 @@ pytest
 pdf-highlight-api/
 ├── src/
 │   ├── infrastructure/
-│   │   └── gemini.py  # Gemini API連携サービス
-│   └── main.py        # アプリケーションエントリーポイント
-├── pyproject.toml     # プロジェクト設定
-├── .python-version    # Python バージョン指定
-├── .env.example       # 環境変数のサンプル
-├── Dockerfile         # Dockerイメージ定義（Popplerを含む）
-├── docker-compose.yml # Docker Compose設定
-└── .dockerignore      # Docker用の除外ファイル設定
+│   │   └── gemini.py          # Gemini 2.5 Pro API連携サービス
+│   └── main.py                # FastAPIアプリケーションエントリーポイント
+├── test-pdf-to-image.html     # インタラクティブWebテストインターフェース
+├── pyproject.toml             # プロジェクト設定（uv形式）
+├── .python-version            # Python 3.13バージョン指定
+├── .env.example               # 環境変数のサンプル（GEMINI_API_KEY）
+├── Dockerfile                 # Dockerイメージ定義（Python 3.13 + Poppler）
+├── docker-compose.yml         # Docker Compose設定
+├── .dockerignore              # Docker用の除外ファイル設定
+├── CLAUDE.md                  # Claude Code用プロジェクト指示
+└── README.md                  # プロジェクト文書
 ```
 
-プロジェクトが成長するにつれて、`src/pdf_highlight_api/` の下に適切なパッケージ構造でコードを整理することを検討してください。
+プロジェクトが成長するにつれて、`src/` の下に適切なパッケージ構造（ドメイン層、アプリケーション層、インフラ層）でコードを整理することを検討してください。
