@@ -64,6 +64,7 @@ async def hello_world():
 async def analyze_pdf(
     file: UploadFile = File(...), 
     dpi: int = 200,
+    highlight: bool = Query(True, description="ハイライト機能を有効にするかどうか"),
     prompt: str = Query(
         "この図面PDFを詳しく分析してください。特に以下の点に注目してください：\n"
         "1. 図面内に記載されている「PF100」および「PF150」の文言を全て検出し、それぞれの箇所数をカウントしてください。\n"
@@ -76,17 +77,19 @@ async def analyze_pdf(
     )
 ):
     """
-    図面PDFファイルを画像に変換し、Gemini AIでPF100/PF150の検出・カウントを実行する
+    図面PDFファイルを画像に変換し、Gemini AIでPF100/PF150の検出・カウント・ハイライトを実行する
     
     Parameters:
     - file: PDF図面ファイル（アップロード）
     - dpi: 画像変換解像度（デフォルト200）
+    - highlight: ハイライト機能有効化フラグ（デフォルトTrue）
     - prompt: AI分析プロンプト（図面解析・PF100/PF150カウント用にカスタマイズ済み）
     
     Returns:
     - 図面分析結果
-    - PF100/PF150のカウント数
-    - 画像プレビュー
+    - PF100/PF150のカウント数と座標情報
+    - 元画像プレビュー
+    - ハイライト付き画像プレビュー（highlight=Trueの場合）
     - メタデータ
     """
     print(f"📄 PDF分析開始: {file.filename}")
@@ -111,11 +114,47 @@ async def analyze_pdf(
         print(f"✅ 変換完了: {len(images)}ページの画像を生成")
         
         # 画像プレビューデータを作成
-        print("🎨 画像プレビューデータを作成中...")
+        print("🎨 元画像プレビューデータを作成中...")
         preview_images = _create_image_previews(images)
-        print("✅ プレビューデータ作成完了")
+        print("✅ 元画像プレビューデータ作成完了")
         
-        # Gemini分析を実行
+        # 座標検出とハイライト処理
+        highlighted_images = []
+        all_detection_data = []
+        
+        if highlight:
+            print("🎯 座標検出とハイライト処理を開始...")
+            for i, image in enumerate(images):
+                print(f"📍 ページ{i+1}: 座標検出中...")
+                detection_data = await gemini_analyzer.analyze_image_with_coordinates(image)
+                all_detection_data.append(detection_data)
+                
+                if "error" not in detection_data:
+                    print(f"🎨 ページ{i+1}: ハイライト描画中...")
+                    highlighted_image = gemini_analyzer.create_highlighted_image(image, detection_data)
+                    
+                    # ハイライト済み画像をBase64エンコード
+                    img_buffer = io.BytesIO()
+                    highlighted_image.save(img_buffer, format='PNG')
+                    img_buffer.seek(0)
+                    img_base64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
+                    
+                    highlighted_images.append({
+                        "page": i + 1,
+                        "image_data": f"data:image/png;base64,{img_base64}",
+                        "detections": detection_data.get("detections", []),
+                        "summary": detection_data.get("summary", {})
+                    })
+                    print(f"✅ ページ{i+1}: ハイライト完了")
+                else:
+                    print(f"⚠️ ページ{i+1}: 座標検出エラー - {detection_data.get('error', '不明なエラー')}")
+                    highlighted_images.append({
+                        "page": i + 1,
+                        "error": detection_data.get("error", "座標検出に失敗しました")
+                    })
+            print("✅ 全ページのハイライト処理完了")
+        
+        # 従来のGemini分析を実行
         print("🤖 AI分析を開始...")
         if len(images) > 1:
             print(f"📚 複数ページ分析: {len(images)}ページを順次処理中...")
@@ -127,12 +166,24 @@ async def analyze_pdf(
             overall_analysis = await gemini_analyzer.analyze_image(images[0], prompt)
             print("✅ 単一ページ分析完了")
 
-        # PF100/PF150のカウント結果を抽出
+        # PF100/PF150のカウント結果を抽出（座標データとテキスト分析を統合）
         pf_counts = _extract_pf_counts(overall_analysis)
+        
+        # 座標データから正確なカウントを取得
+        if all_detection_data:
+            coordinate_counts = {"PF100": 0, "PF150": 0, "total_detections": 0}
+            for detection_data in all_detection_data:
+                if "summary" in detection_data:
+                    coordinate_counts["PF100"] += detection_data["summary"].get("pf100_count", 0)
+                    coordinate_counts["PF150"] += detection_data["summary"].get("pf150_count", 0)
+                    coordinate_counts["total_detections"] += detection_data["summary"].get("total_detections", 0)
+            
+            # 座標ベースのカウントをメインに使用
+            pf_counts["coordinate_based"] = coordinate_counts
         
         print(f"🎉 PDF分析完了: {file.filename}")
         
-        return {
+        response_data = {
             "filename": file.filename,
             "total_pages": len(images),
             "analysis": overall_analysis,
@@ -140,8 +191,16 @@ async def analyze_pdf(
             "images": preview_images,
             "prompt": prompt,
             "dpi": dpi,
-            "analysis_type": "図面PDF解析 (PF100/PF150カウント)"
+            "highlight_enabled": highlight,
+            "analysis_type": "図面PDF解析 (PF100/PF150カウント・ハイライト)"
         }
+        
+        # ハイライト機能が有効な場合のみ追加
+        if highlight:
+            response_data["highlighted_images"] = highlighted_images
+            response_data["detection_data"] = all_detection_data
+            
+        return response_data
         
     except Exception as e:
         print(f"❌ PDF処理エラー: {str(e)}")

@@ -292,6 +292,13 @@
               <input type="number" id="dpi-setting" value="200" min="72" max="600" style="width: 80px; padding: 5px 10px; border: 1px solid #ddd; border-radius: 4px;">
               <small style="color: #666; margin-left: 10px;">画像の解像度（72-600）</small>
             </div>
+            <div class="option-group">
+              <label>
+                <input type="checkbox" id="highlight-setting" checked style="margin-right: 8px;">
+                ハイライト機能を有効にする
+              </label>
+              <small style="color: #666; display: block; margin-top: 5px;">PF100/PF150の検出箇所をハイライト表示します</small>
+            </div>
             <button class="upload-btn" id="image-upload-btn" onclick="analyzePDF()">
               🔍 図面PDFを分析（PF100/PF150カウント）
             </button>
@@ -316,6 +323,10 @@
             <div class="preview-title">🤖 AI分析結果</div>
             <div id="analysis-result" style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px; white-space: pre-wrap; line-height: 1.6; display: none;"></div>
             <div class="preview-title">🖼️ 画像プレビュー</div>
+            <div id="image-mode-toggle" style="margin-bottom: 20px; text-align: center; display: none;">
+              <button id="original-btn" class="tab" style="border-radius: 5px 0 0 5px;">元画像</button>
+              <button id="highlighted-btn" class="tab" style="border-radius: 0 5px 5px 0;">ハイライト画像</button>
+            </div>
             <div id="preview-content"></div>
           </div>
         </div>
@@ -344,6 +355,7 @@
         const uploadBtn = document.getElementById("image-upload-btn");
         const promptInput = document.getElementById("analysis-prompt");
         const dpiInput = document.getElementById("dpi-setting");
+        const highlightInput = document.getElementById("highlight-setting");
 
         if (!fileInput.files[0]) {
           showStatus("image-status", "PDFファイルを選択してください", "error");
@@ -376,6 +388,7 @@
         
         const prompt = promptInput.value.trim() || "この図面PDFを詳しく分析してください。特に以下の点に注目してください：\\n1. 図面内に記載されている「PF100」および「PF150」の文言を全て検出し、それぞれの箇所数をカウントしてください。\\n2. それぞれの文言が指し示すポイント（位置や対象）を特定してください。\\n3. 図面の全体的な構造と主要なコンポーネントを説明してください。\\n4. 検出結果は以下の形式で明記してください：\\n   - PF100: X箇所\\n   - PF150: Y箇所";
         const dpi = dpiInput.value || 200;
+        const highlight = highlightInput.checked;
 
         try {
           // 進捗表示のシミュレーション
@@ -398,7 +411,7 @@
             }
           }, 2000); // 2秒ごとに進捗を更新
 
-          const response = await fetch(`${API_BASE_URL}/analyze-pdf?dpi=${dpi}&prompt=${encodeURIComponent(prompt)}`, {
+          const response = await fetch(`${API_BASE_URL}/analyze-pdf?dpi=${dpi}&highlight=${highlight}&prompt=${encodeURIComponent(prompt)}`, {
             method: "POST",
             body: formData,
           });
@@ -428,41 +441,27 @@
             const previewContent = document.getElementById("preview-content");
             previewContainer.style.display = "block";
             
-            // 画像プレビューを表示
-            if (result.images && result.images.length > 0) {
-              if (result.images.length > 1) {
-                // 複数ページの場合
-                const imageGallery = document.createElement("div");
-                imageGallery.className = "image-gallery";
-                
-                result.images.forEach((imageData, index) => {
-                  const imageItem = document.createElement("div");
-                  imageItem.className = "image-item";
-                  
-                  const img = document.createElement("img");
-                  img.src = imageData.image_data;
-                  img.alt = `Page ${imageData.page}`;
-                  
-                  const pageNum = document.createElement("div");
-                  pageNum.className = "page-number";
-                  pageNum.textContent = `ページ ${imageData.page}`;
-                  
-                  imageItem.appendChild(img);
-                  imageItem.appendChild(pageNum);
-                  imageGallery.appendChild(imageItem);
-                });
-                
-                previewContent.appendChild(imageGallery);
-              } else {
-                // 単一ページの場合
-                const img = document.createElement("img");
-                img.src = result.images[0].image_data;
-                img.className = "single-image";
-                img.alt = "PDF Page 1";
-                
-                previewContent.appendChild(img);
-              }
+            // 画像切り替えボタンの設定
+            let currentMode = 'original';
+            window.currentResult = result; // グローバルに結果を保存
+            
+            // ハイライト機能が有効でハイライト画像がある場合、切り替えボタンを表示
+            if (result.highlight_enabled && result.highlighted_images && result.highlighted_images.length > 0) {
+              const toggleDiv = document.getElementById("image-mode-toggle");
+              toggleDiv.style.display = "block";
+              
+              const originalBtn = document.getElementById("original-btn");
+              const highlightedBtn = document.getElementById("highlighted-btn");
+              
+              originalBtn.className = "tab active";
+              highlightedBtn.className = "tab";
+              
+              originalBtn.onclick = () => switchImageMode('original');
+              highlightedBtn.onclick = () => switchImageMode('highlighted');
             }
+            
+            // 初期表示は元画像
+            displayImages('original');
             
             // 分析情報を表示
             const infoDiv = document.createElement("div");
@@ -537,6 +536,89 @@
       }
 
       setupDragAndDrop("image-upload-area", "image-pdf-file");
+
+      // 画像切り替え機能
+      function switchImageMode(mode) {
+        const originalBtn = document.getElementById("original-btn");
+        const highlightedBtn = document.getElementById("highlighted-btn");
+        
+        if (mode === 'original') {
+          originalBtn.className = "tab active";
+          highlightedBtn.className = "tab";
+        } else {
+          originalBtn.className = "tab";
+          highlightedBtn.className = "tab active";
+        }
+        
+        displayImages(mode);
+      }
+      
+      function displayImages(mode) {
+        const previewContent = document.getElementById("preview-content");
+        const result = window.currentResult;
+        
+        if (!result) return;
+        
+        // 既存の画像をクリア（情報div以外）
+        const infoDiv = previewContent.querySelector('div[style*="margin-top: 20px"]');
+        previewContent.innerHTML = "";
+        
+        let images = [];
+        if (mode === 'highlighted' && result.highlighted_images && result.highlighted_images.length > 0) {
+          images = result.highlighted_images;
+        } else {
+          images = result.images || [];
+        }
+        
+        if (images.length > 0) {
+          if (images.length > 1) {
+            // 複数ページの場合
+            const imageGallery = document.createElement("div");
+            imageGallery.className = "image-gallery";
+            
+            images.forEach((imageData, index) => {
+              const imageItem = document.createElement("div");
+              imageItem.className = "image-item";
+              
+              const img = document.createElement("img");
+              img.src = imageData.image_data;
+              img.alt = `Page ${imageData.page}`;
+              
+              const pageNum = document.createElement("div");
+              pageNum.className = "page-number";
+              let pageTitle = `ページ ${imageData.page}`;
+              
+              // ハイライトモードで検出情報があるかカウ表示
+              if (mode === 'highlighted' && imageData.summary) {
+                const pf100 = imageData.summary.pf100_count || 0;
+                const pf150 = imageData.summary.pf150_count || 0;
+                pageTitle += ` (PF100:${pf100}, PF150:${pf150})`;
+              }
+              
+              pageNum.textContent = pageTitle;
+              
+              imageItem.appendChild(img);
+              imageItem.appendChild(pageNum);
+              imageGallery.appendChild(imageItem);
+            });
+            
+            previewContent.appendChild(imageGallery);
+          } else {
+            // 単一ページの場合
+            const img = document.createElement("img");
+            img.src = images[0].image_data;
+            img.className = "single-image";
+            img.alt = "PDF Page 1";
+            
+            previewContent.appendChild(img);
+          }
+        }
+        
+        // 情報divを再追加
+        if (infoDiv) {
+          previewContent.appendChild(infoDiv);
+        }
+      }
     </script>
   </body>
 </html>
