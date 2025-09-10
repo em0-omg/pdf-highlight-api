@@ -1,18 +1,15 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import Response, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
-import fitz  # type: ignore
+from fastapi.responses import StreamingResponse
 from pdf2image import convert_from_bytes
-from PIL import Image
+import uvicorn
 import io
-import random
-from typing import List
-from dataclasses import dataclass
+import zipfile
 from urllib.parse import quote
 
 app = FastAPI(title="PDF Highlight API", version="0.1.0")
 
+# CORSミドルウェアの設定
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -22,193 +19,73 @@ app.add_middleware(
 )
 
 
-@dataclass
-class Coordinate:
-    x: float
-    y: float
-    page: int
-
-
-def simulate_ai_analysis(pdf_doc: fitz.Document) -> List[Coordinate]:
-    """
-    AI解析をシミュレートしてランダムな座標を返す関数
-    実際のAI解析では、PDF内容を分析してハイライトすべき箇所を特定する
-    """
-    coordinates = []
-
-    for page_num in range(len(pdf_doc)):
-        page = pdf_doc[page_num]
-        rect = page.rect
-
-        # ページあたり1-5個のランダムなハイライト
-        highlights_per_page = random.randint(1, 5)
-
-        for _ in range(highlights_per_page):
-            # ページの端から少し内側にランダムな座標を生成
-            margin = 50
-            x = random.uniform(margin, rect.width - margin)
-            y = random.uniform(margin, rect.height - margin)
-
-            coordinates.append(Coordinate(x=x, y=y, page=page_num))
-
-    return coordinates
-
 
 @app.get("/")
 async def hello_world():
     return {"message": "PDF Highlight API is running"}
 
 
-@app.post("/highlight-pdf")
-async def highlight_pdf_with_ai_analysis(file: UploadFile = File(...)):
-    """
-    AI解析をシミュレートして、PDFの複数箇所にハイライトを追加する
-    """
-    if not file.filename or not file.filename.endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
-
-    try:
-        pdf_bytes = await file.read()
-        pdf_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-
-        # AI解析をシミュレートして座標を取得
-        coordinates = simulate_ai_analysis(pdf_doc)
-
-        # ページ数を事前に取得
-        pages_count = len(pdf_doc)
-
-        # 各座標にハイライトを追加
-        for coord in coordinates:
-            page = pdf_doc[coord.page]
-            radius = 15
-
-            # ハイライト用の矩形を作成
-            highlight_rect = fitz.Rect(
-                coord.x - radius, coord.y - radius, coord.x + radius, coord.y + radius
-            )
-
-            # ハイライトを追加（fill色は指定しない）
-            highlight = page.add_highlight_annot(highlight_rect)
-            highlight.set_colors({"stroke": [1, 0.8, 0]})  # オレンジ色（stroke のみ）
-            highlight.update()
-
-        output_buffer = io.BytesIO()
-        pdf_doc.save(output_buffer)
-        pdf_doc.close()
-
-        output_buffer.seek(0)
-        pdf_bytes = output_buffer.getvalue()
-
-        # レスポンスヘッダーに解析結果の情報を含める
-        total_highlights = len(coordinates)
-
-        return Response(
-            content=pdf_bytes,
-            media_type="application/pdf",
-            headers={
-                "Content-Disposition": f"attachment; filename*=UTF-8''{quote(f'ai_highlighted_{file.filename}')}",
-                "X-Total-Highlights": str(total_highlights),
-                "X-Pages-Processed": str(pages_count),
-            },
-        )
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error processing PDF: {str(e)}")
-
-
 @app.post("/pdf-to-images")
 async def pdf_to_images(file: UploadFile = File(...), dpi: int = 200):
     """
-    PDFファイルを画像に変換する（Popplerを使用）
+    PDFファイルを画像に変換する
     :param file: PDFファイル
     :param dpi: 解像度（デフォルト: 200）
-    :return: 画像のZIPファイル
+    :return: 画像のZIPファイルまたは単一画像
     """
     if not file.filename or not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
     
     try:
         pdf_bytes = await file.read()
-        
-        # PDFを画像に変換（Popplerを使用）
         images = convert_from_bytes(pdf_bytes, dpi=dpi)
         
-        # 複数ページの場合はZIPファイルとして返す
         if len(images) > 1:
-            import zipfile
-            zip_buffer = io.BytesIO()
-            
-            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-                for i, image in enumerate(images):
-                    img_buffer = io.BytesIO()
-                    image.save(img_buffer, format='PNG')
-                    img_buffer.seek(0)
-                    zip_file.writestr(f'page_{i+1}.png', img_buffer.getvalue())
-            
-            zip_buffer.seek(0)
-            return StreamingResponse(
-                zip_buffer,
-                media_type="application/zip",
-                headers={
-                    "Content-Disposition": f"attachment; filename*=UTF-8''{quote(file.filename.rsplit('.', 1)[0] + '_images.zip')}"
-                }
-            )
-        
-        # 1ページの場合は単一の画像として返す
+            return _create_zip_response(images, file.filename)
         else:
-            img_buffer = io.BytesIO()
-            images[0].save(img_buffer, format='PNG')
-            img_buffer.seek(0)
-            
-            return StreamingResponse(
-                img_buffer,
-                media_type="image/png",
-                headers={
-                    "Content-Disposition": f"attachment; filename*=UTF-8''{quote(file.filename.rsplit('.', 1)[0] + '.png')}"
-                }
-            )
-            
+            return _create_single_image_response(images[0], file.filename)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error converting PDF: {str(e)}")
 
 
-@app.post("/pdf-to-image-single")
-async def pdf_to_image_single(file: UploadFile = File(...), page: int = 1, dpi: int = 200):
+def _create_zip_response(images: list, filename: str) -> StreamingResponse:
     """
-    PDFの特定ページを画像に変換する
-    :param file: PDFファイル
-    :param page: ページ番号（1から始まる）
-    :param dpi: 解像度（デフォルト: 200）
-    :return: PNG画像
+    複数画像をZIPファイルとして返す
     """
-    if not file.filename or not file.filename.endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+    zip_buffer = io.BytesIO()
     
-    try:
-        pdf_bytes = await file.read()
-        
-        # 特定ページのみを画像に変換
-        images = convert_from_bytes(pdf_bytes, dpi=dpi, first_page=page, last_page=page)
-        
-        if not images:
-            raise HTTPException(status_code=404, detail=f"Page {page} not found in PDF")
-        
-        img_buffer = io.BytesIO()
-        images[0].save(img_buffer, format='PNG')
-        img_buffer.seek(0)
-        
-        return StreamingResponse(
-            img_buffer,
-            media_type="image/png",
-            headers={
-                "Content-Disposition": f"attachment; filename*=UTF-8''{quote(file.filename.rsplit('.', 1)[0] + f'_page_{page}.png')}"
-            }
-        )
-        
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error converting PDF: {str(e)}")
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        for i, image in enumerate(images):
+            img_buffer = io.BytesIO()
+            image.save(img_buffer, format='PNG')
+            img_buffer.seek(0)
+            zip_file.writestr(f'page_{i+1}.png', img_buffer.getvalue())
+    
+    zip_buffer.seek(0)
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename.rsplit('.', 1)[0] + '_images.zip')}"
+        }
+    )
+
+
+def _create_single_image_response(image, filename: str) -> StreamingResponse:
+    """
+    単一画像を返す
+    """
+    img_buffer = io.BytesIO()
+    image.save(img_buffer, format='PNG')
+    img_buffer.seek(0)
+    
+    return StreamingResponse(
+        img_buffer,
+        media_type="image/png",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename.rsplit('.', 1)[0] + '.png')}"
+        }
+    )
 
 
 if __name__ == "__main__":

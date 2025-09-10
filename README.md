@@ -1,13 +1,12 @@
 # PDF Highlight API
 
-Python 3.13とモダンなツールで構築された、PDFハイライト処理用のFastAPIベースのREST API。
+Python 3.13とモダンなツールで構築された、PDF画像変換用のFastAPIベースのREST API。
 
 ## 機能
 
-- **AI解析ハイライト処理**: AI解析をシミュレートして、PDFファイルの複数箇所にスマートなハイライトを自動追加
 - **PDF画像変換**: Popplerを使用したPDFから画像への高品質変換
 - **ファイルアップロード**: multipart/form-data形式でのPDFファイル受信
-- **ファイルダウンロード**: 処理済みPDFファイルの即座ダウンロード
+- **ファイルダウンロード**: 変換済み画像ファイルの即座ダウンロード
 - **FastAPIフレームワーク**: 高性能で非同期処理対応のWeb API
 - **自動API文書化**: Swagger UI/ReDocによる対話的なAPI文書
 - **Docker対応**: コンテナ化された開発・本番環境
@@ -84,35 +83,6 @@ APIのヘルスチェック用エンドポイント。
 curl http://localhost:8000/
 ```
 
-#### POST `/highlight-pdf`
-PDFファイルをアップロードして、AI解析をシミュレートした複数箇所にハイライトを追加します。
-
-**リクエスト:**
-- Content-Type: `multipart/form-data`
-- Body: `file` (PDF ファイル)
-
-**レスポンス:**
-- Content-Type: `application/pdf`
-- ハイライトが追加されたPDFファイルが返されます
-
-**例:**
-```bash
-# cURLでPDFファイルをアップロード
-curl -X POST http://localhost:8000/highlight-pdf \
-  -F "file=@example.pdf" \
-  --output ai_highlighted_example.pdf
-
-# Swagger UIを使用する場合
-# http://localhost:8000/docs にアクセスして
-# /highlight-pdf エンドポイントからファイルをアップロード
-```
-
-**機能詳細:**
-- AI解析をシミュレートして、PDFの各ページに1-5個のランダムなハイライトを配置
-- ページ端から適度な余白を保った座標に半径15のオレンジ色ハイライトを追加
-- 処理済みPDFを `ai_highlighted_[元のファイル名]` として返却
-- レスポンスヘッダーに総ハイライト数とページ数の情報を含める
-
 #### POST `/pdf-to-images`
 PDFファイルをすべてのページを画像に変換します。
 
@@ -140,34 +110,6 @@ curl -X POST http://localhost:8000/pdf-to-images \
   --output high_res_images.zip
 ```
 
-#### POST `/pdf-to-image-single`
-PDFファイルの特定ページのみを画像に変換します。
-
-**リクエスト:**
-- Content-Type: `multipart/form-data`
-- Body: 
-  - `file` (PDF ファイル) - 必須
-  - `page` (整数) - ページ番号（1から始まる、デフォルト: 1）
-  - `dpi` (整数) - 解像度（デフォルト: 200）
-
-**レスポンス:**
-- Content-Type: `image/png`
-- 指定したページのPNG画像
-
-**例:**
-```bash
-# 1ページ目を変換
-curl -X POST http://localhost:8000/pdf-to-image-single \
-  -F "file=@example.pdf" \
-  --output page_1.png
-
-# 3ページ目を高解像度で変換
-curl -X POST http://localhost:8000/pdf-to-image-single \
-  -F "file=@example.pdf" \
-  -F "page=3" \
-  -F "dpi=300" \
-  --output page_3_hires.png
-```
 
 ## 開発
 
@@ -226,7 +168,6 @@ pdf-highlight-api/
 
 - **フレームワーク**: FastAPI（高性能Web API）
 - **ASGIサーバー**: Uvicorn（非同期処理対応）
-- **PDF処理**: PyMuPDF (fitz) - PDF読み書きとハイライト機能
 - **PDF画像変換**: pdf2image + Poppler - 高品質なPDFから画像への変換
 - **画像処理**: Pillow - 画像の保存と操作
 - **ファイル処理**: python-multipart（ファイルアップロード）
@@ -237,16 +178,15 @@ pdf-highlight-api/
 
 ## 今後の開発
 
-AI解析シミュレーション機能を含むPDFハイライト機能とPDF画像変換機能は実装済みです。今後の拡張予定:
-- 実際のAI解析エンジンとの統合（OCR、テキスト解析、画像認識）
-- ハイライトの位置、色、サイズのカスタマイズAPI
-- 複数のハイライトマーク（矩形、テキスト、注釈）の追加
-- PDFハイライト情報の抽出とメタデータ出力
+PDF画像変換機能は実装済みです。今後の拡張予定:
+- PDFハイライト機能の追加（PyMuPDF統合）
+- AI解析エンジンとの統合（OCR、テキスト解析、画像認識）
 - 画像変換の詳細オプション（フォーマット選択、品質調整など）
+- 特定ページの個別変換機能
 - 永続化ストレージのためのデータベース統合
 - 認証と認可システム
 - バッチ処理（複数ファイル同時処理）
-- ハイライト結果の統計データ表示
+- 変換結果のメタデータ出力
 
 ## 貢献
 

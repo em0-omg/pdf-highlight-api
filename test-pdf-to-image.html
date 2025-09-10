@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PDF API Test - ハイライト & 画像変換</title>
+    <title>PDF プレビューツール</title>
     <style>
       * {
         box-sizing: border-box;
@@ -248,53 +248,15 @@
   </head>
   <body>
     <div class="container">
-      <h1>🎨 PDF API テストツール</h1>
-
-      <div class="tabs">
-        <button class="tab active" onclick="switchTab('highlight')">
-          📝 PDFハイライト
-        </button>
-        <button class="tab" onclick="switchTab('image')">
-          🖼️ PDF → 画像変換
-        </button>
-      </div>
+      <h1>📄 PDF プレビューツール</h1>
 
       <div class="tab-content">
-        <!-- ハイライトタブ -->
-        <div id="highlight-tab" class="tab-pane active">
+        <div id="image-tab" class="tab-pane active">
           <div class="info">
-            <strong>PDFハイライト機能:</strong><br />
+            <strong>PDF プレビュー機能:</strong><br />
             1. PDFファイルを選択<br />
-            2. AI解析をシミュレートして複数箇所にハイライトを追加<br />
-            3. ハイライト済みPDFをダウンロード
-          </div>
-
-          <div class="upload-area" id="highlight-upload-area">
-            <h3>📄 PDFファイルをアップロード</h3>
-            <p>ファイルをドラッグ&ドロップまたは選択してください</p>
-            <div class="file-input-wrapper">
-              <label for="highlight-pdf-file" class="file-input-label">
-                ファイルを選択
-              </label>
-              <input type="file" id="highlight-pdf-file" accept=".pdf" />
-              <span class="file-name" id="highlight-file-name"></span>
-            </div>
-            <button class="upload-btn" id="highlight-upload-btn" onclick="uploadHighlightPDF()">
-              ハイライトを追加
-            </button>
-          </div>
-
-          <div class="status" id="highlight-status"></div>
-        </div>
-
-        <!-- 画像変換タブ -->
-        <div id="image-tab" class="tab-pane">
-          <div class="info">
-            <strong>PDF → 画像変換機能:</strong><br />
-            1. PDFファイルを選択<br />
-            2. 変換オプションを設定（ページ指定など）<br />
-            3. PDFを画像に変換してプレビュー表示<br />
-            4. 変換された画像をダウンロード
+            2. PDFを画像に変換してプレビュー表示<br />
+            3. 変換された画像をダウンロード
           </div>
 
           <div class="upload-area" id="image-upload-area">
@@ -313,19 +275,11 @@
             <h4>変換オプション</h4>
             <div class="option-group">
               <label>
-                <input type="radio" name="convert-type" value="all" checked />
-                すべてのページを変換
+                すべてのページを変換してプレビュー表示します
               </label>
             </div>
-            <div class="option-group">
-              <label>
-                <input type="radio" name="convert-type" value="single" />
-                特定のページを変換
-                <input type="number" id="page-number" min="1" value="1" disabled />
-              </label>
-            </div>
-            <button class="upload-btn" id="image-upload-btn" onclick="uploadImagePDF()">
-              画像に変換
+            <button class="upload-btn" id="image-upload-btn" onclick="convertPDFToImages()">
+              プレビューを生成
             </button>
           </div>
 
@@ -342,24 +296,6 @@
     <script>
       const API_BASE_URL = "http://localhost:8000";
 
-      // タブ切り替え
-      function switchTab(tabName) {
-        document.querySelectorAll('.tab').forEach(tab => {
-          tab.classList.remove('active');
-        });
-        document.querySelectorAll('.tab-pane').forEach(pane => {
-          pane.classList.remove('active');
-        });
-
-        if (tabName === 'highlight') {
-          document.querySelectorAll('.tab')[0].classList.add('active');
-          document.getElementById('highlight-tab').classList.add('active');
-        } else {
-          document.querySelectorAll('.tab')[1].classList.add('active');
-          document.getElementById('image-tab').classList.add('active');
-        }
-      }
-
       // ステータス表示
       function showStatus(elementId, message, type) {
         const statusDiv = document.getElementById(elementId);
@@ -373,65 +309,10 @@
         statusDiv.style.display = "none";
       }
 
-      // ハイライト機能
-      async function uploadHighlightPDF() {
-        const fileInput = document.getElementById("highlight-pdf-file");
-        const uploadBtn = document.getElementById("highlight-upload-btn");
-
-        if (!fileInput.files[0]) {
-          showStatus("highlight-status", "PDFファイルを選択してください", "error");
-          return;
-        }
-
-        uploadBtn.disabled = true;
-        uploadBtn.textContent = "処理中...";
-        showStatus("highlight-status", "PDFを処理中...", "loading");
-
-        const formData = new FormData();
-        formData.append("file", fileInput.files[0]);
-
-        try {
-          const response = await fetch(`${API_BASE_URL}/highlight-pdf`, {
-            method: "POST",
-            body: formData,
-          });
-
-          if (response.ok) {
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            const originalName = fileInput.files[0].name.replace(".pdf", "");
-            const downloadName = `highlighted_${originalName}.pdf`;
-
-            const statusDiv = document.getElementById("highlight-status");
-            statusDiv.innerHTML = `
-              処理完了！<br>
-              <a href="${url}" download="${downloadName}" class="download-link">
-                📥 ${downloadName} をダウンロード
-              </a>
-            `;
-            statusDiv.className = "status success";
-          } else {
-            const errorData = await response.json();
-            showStatus("highlight-status", `エラー: ${errorData.detail}`, "error");
-          }
-        } catch (error) {
-          showStatus(
-            "highlight-status",
-            "APIサーバーに接続できません。サーバーが起動していることを確認してください。",
-            "error"
-          );
-        } finally {
-          uploadBtn.disabled = false;
-          uploadBtn.textContent = "ハイライトを追加";
-        }
-      }
-
-      // 画像変換機能
-      async function uploadImagePDF() {
+      // PDF to Image変換機能
+      async function convertPDFToImages() {
         const fileInput = document.getElementById("image-pdf-file");
         const uploadBtn = document.getElementById("image-upload-btn");
-        const convertType = document.querySelector('input[name="convert-type"]:checked').value;
-        const pageNumber = document.getElementById("page-number").value;
 
         if (!fileInput.files[0]) {
           showStatus("image-status", "PDFファイルを選択してください", "error");
@@ -450,15 +331,7 @@
         formData.append("file", fileInput.files[0]);
 
         try {
-          let endpoint;
-          if (convertType === "single") {
-            endpoint = "/pdf-to-image-single";
-            formData.append("page", pageNumber);
-          } else {
-            endpoint = "/pdf-to-images";
-          }
-
-          const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+          const response = await fetch(`${API_BASE_URL}/pdf-to-images`, {
             method: "POST",
             body: formData,
           });
@@ -532,14 +405,14 @@
               const img = document.createElement("img");
               img.src = url;
               img.className = "single-image";
-              img.alt = `Page ${pageNumber}`;
+              img.alt = "PDF Preview";
               
               previewContent.appendChild(img);
               
               // ダウンロードリンクも追加
               const downloadLink = document.createElement("a");
               downloadLink.href = url;
-              downloadLink.download = `page_${pageNumber}.png`;
+              downloadLink.download = "pdf_image.png";
               downloadLink.className = "download-link";
               downloadLink.textContent = `📥 画像をダウンロード`;
               
@@ -559,28 +432,15 @@
           );
         } finally {
           uploadBtn.disabled = false;
-          uploadBtn.textContent = "画像に変換";
+          uploadBtn.textContent = "プレビューを生成";
         }
       }
 
       // ファイル選択時の処理
-      document.getElementById("highlight-pdf-file").addEventListener("change", function(e) {
-        const fileName = e.target.files[0] ? e.target.files[0].name : "";
-        document.getElementById("highlight-file-name").textContent = fileName;
-        hideStatus("highlight-status");
-      });
-
       document.getElementById("image-pdf-file").addEventListener("change", function(e) {
         const fileName = e.target.files[0] ? e.target.files[0].name : "";
         document.getElementById("image-file-name").textContent = fileName;
         hideStatus("image-status");
-      });
-
-      // ラジオボタンの処理
-      document.querySelectorAll('input[name="convert-type"]').forEach(radio => {
-        radio.addEventListener("change", function() {
-          document.getElementById("page-number").disabled = this.value !== "single";
-        });
       });
 
       // ドラッグ&ドロップの実装
@@ -607,16 +467,11 @@
             fileInput.files = files;
             fileInput.dispatchEvent(new Event('change'));
           } else {
-            showStatus(
-              areaId.includes("highlight") ? "highlight-status" : "image-status",
-              "PDFファイルをドロップしてください",
-              "error"
-            );
+            showStatus("image-status", "PDFファイルをドロップしてください", "error");
           }
         });
       }
 
-      setupDragAndDrop("highlight-upload-area", "highlight-pdf-file");
       setupDragAndDrop("image-upload-area", "image-pdf-file");
     </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>

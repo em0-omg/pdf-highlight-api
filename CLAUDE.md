@@ -8,11 +8,7 @@
 
 ### 主な機能
 - PDFファイルのアップロード
-- AI解析をシミュレートした複数箇所へのハイライト自動追加
-- ハイライト済みPDFファイルのダウンロード
-- ランダムな座標生成によるスマートハイライト配置
 - PDFから画像への変換（Popplerを使用）
-- 特定ページの画像変換機能
 
 ## 必須コマンド
 
@@ -73,16 +69,13 @@ pytest
 
 ### API エンドポイント
 - `GET /` - ヘルスチェック
-- `POST /highlight-pdf` - AI解析シミュレーションによる複数箇所ハイライト追加
 - `POST /pdf-to-images` - PDFを画像に変換（複数ページ対応、ZIPまたは単一PNG）
-- `POST /pdf-to-image-single` - PDFの特定ページを画像に変換
 
 ## 開発セットアップ
 
 現在プロジェクトは pyproject.toml に以下の主要な依存関係が定義されています：
 - fastapi: Webフレームワーク
 - uvicorn: ASGIサーバー  
-- pymupdf: PDF処理ライブラリ
 - python-multipart: ファイルアップロード処理
 - pdf2image: PDFから画像への変換ライブラリ
 - pillow: 画像処理ライブラリ
