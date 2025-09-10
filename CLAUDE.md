@@ -4,15 +4,14 @@
 
 ## プロジェクト概要
 
-これは Python 3.13 で構築された PDF 分析 API プロジェクトです。FastAPI を使用してRESTful API を提供し、PDF ファイルを高品質な画像に変換し、Google Gemini AI を使用した文書内容の包括的な分析機能を提供します。このプロジェクトはモダンな Python パッケージ管理に `uv` を使用しています。
+これは Python 3.13 で構築された PF100/PF150 検出特化型 API プロジェクトです。FastAPI を使用してRESTful API を提供し、図面PDFファイルから PF100/PF150 の文言を検出・カウント・ハイライト表示します。このプロジェクトはモダンな Python パッケージ管理に `uv` を使用しています。
 
 ### 主な機能
 - PDFファイルのアップロード（マルチパート形式）
-- PDFから画像への高品質変換（pdf2image + Poppler）
-- Google Gemini 2.5 Pro による AI 文書分析
-- リアルタイム画像プレビュー生成
-- 複数ページ対応の並列処理
-- インタラクティブなWebインターフェース（test-pdf-to-image.html）
+- PF100/PF150文言の自動検出
+- 検出位置の座標取得とハイライト表示
+- 正確なカウント機能
+- 複数ページ対応
 
 ## 必須コマンド
 
@@ -74,12 +73,12 @@ pytest
 
 ### API エンドポイント
 - `GET /` - ヘルスチェック（Gemini APIキー状態確認含む）
-- `POST /analyze-pdf` - PDFをGemini AIで分析（画像変換+AI分析+プレビュー）
-  - パラメータ: `file` (PDF), `dpi` (解像度), `prompt` (分析指示)
-  - レスポンス: 分析結果、画像プレビュー、メタデータ
+- `POST /analyze-pdf` - PF100/PF150文言検出・カウント・ハイライト
+  - パラメータ: `file` (PDF), `dpi` (解像度), `highlight` (ハイライト有効化), `prompt` (検出指示)
+  - レスポンス: 検出結果、カウント数、座標情報、ハイライト画像
 
 ### 環境変数
-- `GEMINI_API_KEY` - Google Gemini API key（分析機能を使用する場合は必須）
+- `GEMINI_API_KEY` - Google Gemini API key（PF100/PF150検出機能を使用する場合は必須）
 
 ## 開発セットアップ
 
@@ -107,9 +106,9 @@ pytest
 pdf-highlight-api/
 ├── src/
 │   ├── infrastructure/
-│   │   └── gemini.py          # Gemini 2.5 Pro API連携サービス
-│   └── main.py                # FastAPIアプリケーションエントリーポイント
-├── test-pdf-to-image.html     # インタラクティブWebテストインターフェース
+│   │   └── gemini.py          # Gemini 2.5 Pro API連携（PF100/PF150検出特化）
+│   └── main.py                # PF100/PF150検出API エントリーポイント
+├── test-pdf-to-image.html     # PF100/PF150検出テストインターフェース
 ├── pyproject.toml             # プロジェクト設定（uv形式）
 ├── .python-version            # Python 3.13バージョン指定
 ├── .env.example               # 環境変数のサンプル（GEMINI_API_KEY）

@@ -61,67 +61,14 @@ class GeminiImageAnalyzer:
         
         return results
     
-    async def analyze_pdf_content(self, images: List[Image.Image], analysis_type: str = "general") -> dict:
-        """
-        PDFから変換された画像を総合的に分析する
-        
-        Args:
-            images: PDFから変換された画像のリスト
-            analysis_type: 分析タイプ ("general", "summary", "extract_text", "highlight_points")
-            
-        Returns:
-            dict: 分析結果と詳細情報
-        """
-        prompts = {
-            "general": "この文書の内容を詳しく説明してください。",
-            "summary": "この文書の要約を作成してください。",
-            "extract_text": "この文書のテキスト内容を抽出してください。",
-            "highlight_points": "この文書の重要なポイントを箇条書きで説明してください。"
-        }
-        
-        prompt = prompts.get(analysis_type, prompts["general"])
-        
-        try:
-            # 全体分析
-            if len(images) > 1:
-                # 複数ページの場合は全体分析
-                all_images_content = [prompt + " (全体分析)"] + images
-                overall_response = self.model.generate_content(all_images_content)
-                overall_analysis = overall_response.text
-                
-                # 各ページの個別分析
-                page_analyses = await self.analyze_images(images, f"{prompt} (個別分析)")
-                
-                return {
-                    "overall_analysis": overall_analysis,
-                    "page_analyses": page_analyses,
-                    "total_pages": len(images),
-                    "analysis_type": analysis_type
-                }
-            else:
-                # 単一ページの場合
-                single_analysis = await self.analyze_image(images[0], prompt)
-                return {
-                    "overall_analysis": single_analysis,
-                    "page_analyses": [single_analysis],
-                    "total_pages": 1,
-                    "analysis_type": analysis_type
-                }
-                
-        except Exception as e:
-            return {
-                "error": f"PDF分析エラー: {str(e)}",
-                "total_pages": len(images),
-                "analysis_type": analysis_type
-            }
     
-    async def analyze_image_with_coordinates(self, image: Image.Image, target_texts: List[str] = ["PF100", "PF150"]) -> Dict[str, Any]:
+    async def analyze_image_with_coordinates(self, image: Image.Image, target_texts: List[str] = ["PF100φ", "PF150φ"]) -> Dict[str, Any]:
         """
-        画像内の特定テキストを検出し、座標情報を取得する
+        図面画像内のPF100φ/PF150φ文言を検出し、座標情報を取得する
         
         Args:
             image: PIL Imageオブジェクト
-            target_texts: 検出対象のテキストリスト
+            target_texts: 検出対象のテキストリスト（デフォルト: PF100φ, PF150φ）
             
         Returns:
             dict: 検出結果と座標情報
@@ -129,30 +76,30 @@ class GeminiImageAnalyzer:
         target_list = ", ".join(target_texts)
         
         coordinate_prompt = f"""
-この画像内で「{target_list}」の文字列を全て検出し、以下のJSON形式で座標情報を返してください。
-画像の左上を(0,0)として、各テキストの位置を正確に特定してください。
+図面上の「{target_list}」文言を検出し、正確な座標を返してください。
 
-必須返答形式（JSON）:
+重要な指示:
+- PF100φ、PF150φの文言のみを検出
+- 図面分析は最小限にして、文言検出に特化
+- 正確な座標（ピクセル単位）を返す
+
+JSON形式:
 {{
     "detections": [
         {{
-            "text": "検出されたテキスト",
+            "text": "PF100φ",
             "bbox": [x, y, width, height],
             "confidence": 0.95
         }}
     ],
     "summary": {{
         "total_detections": 検出総数,
-        "pf100_count": PF100の検出数,
-        "pf150_count": PF150の検出数
+        "pf100_count": PF100φの数,
+        "pf150_count": PF150φの数
     }}
 }}
 
-重要な注意点:
-- 座標は画像のピクセル単位で指定してください
-- 複数の同じテキストが検出された場合は、全て含めてください
-- テキストが不明瞭でも、可能性のある箇所は含めてください
-- 必ずJSON形式のみで回答してください
+JSONのみで回答してください。
 """
         
         try:
@@ -222,8 +169,10 @@ class GeminiImageAnalyzer:
         
         # 色設定
         color_map = {
-            "PF100": (255, 0, 0, 100),    # 赤色（半透明）
-            "PF150": (0, 0, 255, 100),    # 青色（半透明）
+            "PF100Φ": (255, 0, 0, 100),    # 赤色（半透明）
+            "PF100φ": (255, 0, 0, 100),    # 赤色（半透明）
+            "PF150Φ": (0, 0, 255, 100),    # 青色（半透明）
+            "PF150φ": (0, 0, 255, 100),    # 青色（半透明）
         }
         
         default_color = (0, 255, 0, 100)  # 緑色（その他のテキスト用）
