@@ -9,6 +9,7 @@
 ### 主な機能
 - PDFファイルのアップロード
 - PDFから画像への変換（Popplerを使用）
+- Gemini AIを使用したPDF・画像の内容分析
 
 ## 必須コマンド
 
@@ -63,6 +64,7 @@ pytest
 - **Webフレームワーク**: FastAPI（高性能なASYNCIO対応）
 - **PDF処理**: PyMuPDF (fitz) - PDFの読み書きとハイライト機能
 - **PDF画像変換**: pdf2image + Poppler - PDFから画像への変換
+- **AI分析**: Google Gemini API - 画像・PDF内容の分析
 - **エントリーポイント**: src/main.py に FastAPI アプリケーションが実装されています
 - **設定**: pyproject.toml は PEP 518 標準に従います
 - **コンテナ化**: DockerとDocker Composeによる開発環境
@@ -70,6 +72,11 @@ pytest
 ### API エンドポイント
 - `GET /` - ヘルスチェック
 - `POST /pdf-to-images` - PDFを画像に変換（複数ページ対応、ZIPまたは単一PNG）
+- `POST /analyze-pdf` - PDFをGeminiで分析（要GEMINI_API_KEY環境変数）
+- `POST /analyze-image` - 画像ファイルをGeminiで分析（要GEMINI_API_KEY環境変数）
+
+### 環境変数
+- `GEMINI_API_KEY` - Google Gemini API key（分析機能を使用する場合は必須）
 
 ## 開発セットアップ
 
@@ -79,6 +86,7 @@ pytest
 - python-multipart: ファイルアップロード処理
 - pdf2image: PDFから画像への変換ライブラリ
 - pillow: 画像処理ライブラリ
+- google-generativeai: Gemini API連携ライブラリ
 
 現在プロジェクトには以下の開発ツールが追加されています：
 - black: コードフォーマッター
@@ -94,9 +102,12 @@ pytest
 ```
 pdf-highlight-api/
 ├── src/
+│   ├── infrastructure/
+│   │   └── gemini.py  # Gemini API連携サービス
 │   └── main.py        # アプリケーションエントリーポイント
 ├── pyproject.toml     # プロジェクト設定
 ├── .python-version    # Python バージョン指定
+├── .env.example       # 環境変数のサンプル
 ├── Dockerfile         # Dockerイメージ定義（Popplerを含む）
 ├── docker-compose.yml # Docker Compose設定
 └── .dockerignore      # Docker用の除外ファイル設定

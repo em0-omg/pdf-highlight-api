@@ -248,15 +248,16 @@
   </head>
   <body>
     <div class="container">
-      <h1>📄 PDF プレビューツール</h1>
+      <h1>📄 PDF 分析ツール</h1>
 
       <div class="tab-content">
         <div id="image-tab" class="tab-pane active">
           <div class="info">
-            <strong>PDF プレビュー機能:</strong><br />
+            <strong>PDF 分析機能:</strong><br />
             1. PDFファイルを選択<br />
-            2. PDFを画像に変換してプレビュー表示<br />
-            3. 変換された画像をダウンロード
+            2. 分析用のプロンプトを入力<br />
+            3. PDFを画像に変換してGemini AIで分析<br />
+            4. 分析結果と画像プレビューを表示
           </div>
 
           <div class="upload-area" id="image-upload-area">
@@ -272,21 +273,29 @@
           </div>
 
           <div class="options">
-            <h4>変換オプション</h4>
+            <h4>分析オプション</h4>
             <div class="option-group">
-              <label>
-                すべてのページを変換してプレビュー表示します
-              </label>
+              <label for="analysis-prompt">分析プロンプト:</label>
+              <textarea id="analysis-prompt" 
+                       style="width: 100%; height: 80px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-family: inherit; resize: vertical;"
+                       placeholder="この文書について説明してください。">この文書について説明してください。</textarea>
             </div>
-            <button class="upload-btn" id="image-upload-btn" onclick="convertPDFToImages()">
-              プレビューを生成
+            <div class="option-group">
+              <label for="dpi-setting">DPI設定:</label>
+              <input type="number" id="dpi-setting" value="200" min="72" max="600" style="width: 80px; padding: 5px 10px; border: 1px solid #ddd; border-radius: 4px;">
+              <small style="color: #666; margin-left: 10px;">画像の解像度（72-600）</small>
+            </div>
+            <button class="upload-btn" id="image-upload-btn" onclick="analyzePDF()">
+              PDFを分析
             </button>
           </div>
 
           <div class="status" id="image-status"></div>
           
           <div class="preview-container" id="preview-container">
-            <div class="preview-title">変換結果のプレビュー</div>
+            <div class="preview-title">分析結果</div>
+            <div id="analysis-result" style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px; white-space: pre-wrap; line-height: 1.6; display: none;"></div>
+            <div class="preview-title">画像プレビュー</div>
             <div id="preview-content"></div>
           </div>
         </div>
@@ -309,10 +318,12 @@
         statusDiv.style.display = "none";
       }
 
-      // PDF to Image変換機能
-      async function convertPDFToImages() {
+      // PDF分析機能
+      async function analyzePDF() {
         const fileInput = document.getElementById("image-pdf-file");
         const uploadBtn = document.getElementById("image-upload-btn");
+        const promptInput = document.getElementById("analysis-prompt");
+        const dpiInput = document.getElementById("dpi-setting");
 
         if (!fileInput.files[0]) {
           showStatus("image-status", "PDFファイルを選択してください", "error");
@@ -320,106 +331,121 @@
         }
 
         uploadBtn.disabled = true;
-        uploadBtn.textContent = "変換中...";
-        showStatus("image-status", "PDFを画像に変換中...", "loading");
+        uploadBtn.textContent = "分析中...";
+        
+        // プログレスバー付きの詳細なローディング表示
+        const statusDiv = document.getElementById("image-status");
+        statusDiv.innerHTML = `
+          <div class="spinner"></div>
+          <div id="progress-text">PDFを分析中...</div>
+          <div style="margin-top: 10px; font-size: 12px; color: #666;" id="progress-details">
+            処理が完了するまでお待ちください。大きなPDFファイルや複数ページの場合、数分かかることがあります。
+          </div>
+        `;
+        statusDiv.className = "status loading";
+        statusDiv.style.display = "block";
         
         // プレビューコンテナをクリア
         document.getElementById("preview-container").style.display = "none";
         document.getElementById("preview-content").innerHTML = "";
+        document.getElementById("analysis-result").style.display = "none";
 
         const formData = new FormData();
         formData.append("file", fileInput.files[0]);
+        
+        const prompt = promptInput.value.trim() || "この文書について説明してください。";
+        const dpi = dpiInput.value || 200;
 
         try {
-          const response = await fetch(`${API_BASE_URL}/pdf-to-images`, {
+          // 進捗表示のシミュレーション
+          let progressStep = 0;
+          const progressSteps = [
+            "PDFファイルを読み込み中...",
+            "PDFを画像に変換中...",
+            "画像プレビューを作成中...",
+            "AI分析を実行中...",
+            "分析結果を取得中..."
+          ];
+          
+          const progressInterval = setInterval(() => {
+            if (progressStep < progressSteps.length - 1) {
+              progressStep++;
+              const progressText = document.getElementById("progress-text");
+              if (progressText) {
+                progressText.textContent = progressSteps[progressStep];
+              }
+            }
+          }, 2000); // 2秒ごとに進捗を更新
+
+          const response = await fetch(`${API_BASE_URL}/analyze-pdf?dpi=${dpi}&prompt=${encodeURIComponent(prompt)}`, {
             method: "POST",
             body: formData,
           });
+          
+          clearInterval(progressInterval);
 
           if (response.ok) {
-            const contentType = response.headers.get('content-type');
+            const result = await response.json();
             
-            if (contentType && contentType.includes('application/zip')) {
-              // 複数ページの場合（ZIPファイル）
-              const blob = await response.blob();
-              const zip = await JSZip.loadAsync(blob);
-              
-              showStatus("image-status", "変換完了！画像をプレビュー表示中...", "success");
-              
-              const previewContainer = document.getElementById("preview-container");
-              const previewContent = document.getElementById("preview-content");
-              previewContainer.style.display = "block";
-              
-              const imageGallery = document.createElement("div");
-              imageGallery.className = "image-gallery";
-              
-              const files = Object.keys(zip.files).sort();
-              for (const filename of files) {
-                if (filename.endsWith('.png')) {
-                  const fileData = await zip.files[filename].async('base64');
-                  const imgSrc = `data:image/png;base64,${fileData}`;
-                  
+            showStatus("image-status", "分析完了！", "success");
+            
+            // 分析結果を表示
+            const analysisDiv = document.getElementById("analysis-result");
+            analysisDiv.textContent = result.analysis;
+            analysisDiv.style.display = "block";
+            
+            // プレビューコンテナを表示
+            const previewContainer = document.getElementById("preview-container");
+            const previewContent = document.getElementById("preview-content");
+            previewContainer.style.display = "block";
+            
+            // 画像プレビューを表示
+            if (result.images && result.images.length > 0) {
+              if (result.images.length > 1) {
+                // 複数ページの場合
+                const imageGallery = document.createElement("div");
+                imageGallery.className = "image-gallery";
+                
+                result.images.forEach((imageData, index) => {
                   const imageItem = document.createElement("div");
                   imageItem.className = "image-item";
                   
                   const img = document.createElement("img");
-                  img.src = imgSrc;
-                  img.alt = filename;
+                  img.src = imageData.image_data;
+                  img.alt = `Page ${imageData.page}`;
                   
                   const pageNum = document.createElement("div");
                   pageNum.className = "page-number";
-                  pageNum.textContent = filename.replace('.png', '');
+                  pageNum.textContent = `ページ ${imageData.page}`;
                   
                   imageItem.appendChild(img);
                   imageItem.appendChild(pageNum);
                   imageGallery.appendChild(imageItem);
-                }
+                });
+                
+                previewContent.appendChild(imageGallery);
+              } else {
+                // 単一ページの場合
+                const img = document.createElement("img");
+                img.src = result.images[0].image_data;
+                img.className = "single-image";
+                img.alt = "PDF Page 1";
+                
+                previewContent.appendChild(img);
               }
-              
-              previewContent.appendChild(imageGallery);
-              
-              // ダウンロードリンクも追加
-              const url = window.URL.createObjectURL(blob);
-              const downloadLink = document.createElement("a");
-              downloadLink.href = url;
-              downloadLink.download = "pdf_images.zip";
-              downloadLink.className = "download-link";
-              downloadLink.textContent = "📥 すべての画像をダウンロード (ZIP)";
-              downloadLink.style.marginTop = "20px";
-              
-              const statusDiv = document.getElementById("image-status");
-              statusDiv.appendChild(document.createElement("br"));
-              statusDiv.appendChild(downloadLink);
-              
-            } else {
-              // 単一ページの場合（PNG画像）
-              const blob = await response.blob();
-              const url = window.URL.createObjectURL(blob);
-              
-              showStatus("image-status", "変換完了！", "success");
-              
-              const previewContainer = document.getElementById("preview-container");
-              const previewContent = document.getElementById("preview-content");
-              previewContainer.style.display = "block";
-              
-              const img = document.createElement("img");
-              img.src = url;
-              img.className = "single-image";
-              img.alt = "PDF Preview";
-              
-              previewContent.appendChild(img);
-              
-              // ダウンロードリンクも追加
-              const downloadLink = document.createElement("a");
-              downloadLink.href = url;
-              downloadLink.download = "pdf_image.png";
-              downloadLink.className = "download-link";
-              downloadLink.textContent = `📥 画像をダウンロード`;
-              
-              const statusDiv = document.getElementById("image-status");
-              statusDiv.appendChild(document.createElement("br"));
-              statusDiv.appendChild(downloadLink);
             }
+            
+            // 分析情報を表示
+            const infoDiv = document.createElement("div");
+            infoDiv.style.cssText = "margin-top: 20px; padding: 15px; background: #e9ecef; border-radius: 8px; font-size: 14px; color: #666;";
+            infoDiv.innerHTML = `
+              <strong>ファイル名:</strong> ${result.filename}<br>
+              <strong>ページ数:</strong> ${result.total_pages}<br>
+              <strong>プロンプト:</strong> ${result.prompt}<br>
+              <strong>DPI:</strong> ${result.dpi}
+            `;
+            previewContent.appendChild(infoDiv);
+            
           } else {
             const errorData = await response.json();
             showStatus("image-status", `エラー: ${errorData.detail}`, "error");
@@ -432,7 +458,7 @@
           );
         } finally {
           uploadBtn.disabled = false;
-          uploadBtn.textContent = "プレビューを生成";
+          uploadBtn.textContent = "PDFを分析";
         }
       }
 
@@ -474,6 +500,5 @@
 
       setupDragAndDrop("image-upload-area", "image-pdf-file");
     </script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   </body>
 </html>
