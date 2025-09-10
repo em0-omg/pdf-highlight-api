@@ -11,6 +11,8 @@
 - AI解析をシミュレートした複数箇所へのハイライト自動追加
 - ハイライト済みPDFファイルのダウンロード
 - ランダムな座標生成によるスマートハイライト配置
+- PDFから画像への変換（Popplerを使用）
+- 特定ページの画像変換機能
 
 ## 必須コマンド
 
@@ -26,7 +28,19 @@ uv add <package-name>
 uv add --dev <package-name>
 
 # アプリケーションを実行
-uv run main.py
+uv run python src/main.py
+```
+
+### Docker環境での実行
+```bash
+# Dockerコンテナのビルドと起動
+docker-compose up --build
+
+# バックグラウンドで実行
+docker-compose up -d
+
+# コンテナの停止
+docker-compose down
 ```
 
 ### 開発ワークフロー
@@ -52,12 +66,16 @@ pytest
 - **パッケージマネージャー**: uv（pip/poetryのモダンな代替）
 - **Webフレームワーク**: FastAPI（高性能なASYNCIO対応）
 - **PDF処理**: PyMuPDF (fitz) - PDFの読み書きとハイライト機能
-- **エントリーポイント**: main.py に FastAPI アプリケーションが実装されています
+- **PDF画像変換**: pdf2image + Poppler - PDFから画像への変換
+- **エントリーポイント**: src/main.py に FastAPI アプリケーションが実装されています
 - **設定**: pyproject.toml は PEP 518 標準に従います
+- **コンテナ化**: DockerとDocker Composeによる開発環境
 
 ### API エンドポイント
 - `GET /` - ヘルスチェック
 - `POST /highlight-pdf` - AI解析シミュレーションによる複数箇所ハイライト追加
+- `POST /pdf-to-images` - PDFを画像に変換（複数ページ対応、ZIPまたは単一PNG）
+- `POST /pdf-to-image-single` - PDFの特定ページを画像に変換
 
 ## 開発セットアップ
 
@@ -66,6 +84,8 @@ pytest
 - uvicorn: ASGIサーバー  
 - pymupdf: PDF処理ライブラリ
 - python-multipart: ファイルアップロード処理
+- pdf2image: PDFから画像への変換ライブラリ
+- pillow: 画像処理ライブラリ
 
 現在プロジェクトには以下の開発ツールが追加されています：
 - black: コードフォーマッター
@@ -80,9 +100,13 @@ pytest
 
 ```
 pdf-highlight-api/
-├── main.py            # アプリケーションエントリーポイント
+├── src/
+│   └── main.py        # アプリケーションエントリーポイント
 ├── pyproject.toml     # プロジェクト設定
-└── .python-version    # Python バージョン指定
+├── .python-version    # Python バージョン指定
+├── Dockerfile         # Dockerイメージ定義（Popplerを含む）
+├── docker-compose.yml # Docker Compose設定
+└── .dockerignore      # Docker用の除外ファイル設定
 ```
 
 プロジェクトが成長するにつれて、`src/pdf_highlight_api/` の下に適切なパッケージ構造でコードを整理することを検討してください。
