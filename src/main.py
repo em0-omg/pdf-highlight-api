@@ -5,10 +5,15 @@ import uvicorn
 import io
 import base64
 import os
+import re
 from PIL import Image
 from src.infrastructure.gemini import GeminiImageAnalyzer
 
-app = FastAPI(title="PDF Analysis API", version="0.1.0")
+app = FastAPI(
+    title="図面PDF解析API", 
+    version="0.2.0",
+    description="図面PDFを分析し、PF100/PF150の文言とポイント数をカウントする特化型API"
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -40,10 +45,18 @@ else:
 @app.get("/")
 async def hello_world():
     return {
-        "message": "PDF Analysis API is running",
+        "message": "図面PDF解析API is running",
+        "description": "図面PDFを分析し、PF100/PF150の文言とポイント数をカウントする特化型API",
         "gemini_available": gemini_available,
         "status": "✅ Ready" if gemini_available else "⚠️ Gemini API Key required",
-        "setup_help": "Set GEMINI_API_KEY in .env file" if not gemini_available else None
+        "setup_help": "Set GEMINI_API_KEY in .env file" if not gemini_available else None,
+        "features": [
+            "図面PDF分析",
+            "PF100/PF150文言検出",
+            "ポイント数自動カウント",
+            "高解像度画像変換",
+            "AI分析レポート"
+        ]
     }
 
 
@@ -51,10 +64,30 @@ async def hello_world():
 async def analyze_pdf(
     file: UploadFile = File(...), 
     dpi: int = 200,
-    prompt: str = Query("この文書について説明してください。", description="Analysis prompt")
+    prompt: str = Query(
+        "この図面PDFを詳しく分析してください。特に以下の点に注目してください：\n"
+        "1. 図面内に記載されている「PF100」および「PF150」の文言を全て検出し、それぞれの箇所数をカウントしてください。\n"
+        "2. それぞれの文言が指し示すポイント（位置や対象）を特定してください。\n"
+        "3. 図面の全体的な構造と主要なコンポーネントを説明してください。\n"
+        "4. 検出結果は以下の形式で明記してください：\n"
+        "   - PF100: X箇所\n"
+        "   - PF150: Y箇所", 
+        description="図面PDF解析用のプロンプト（PF100/PF150の検出とカウント）"
+    )
 ):
     """
-    PDFファイルを画像に変換し、Gemini AIで分析する
+    図面PDFファイルを画像に変換し、Gemini AIでPF100/PF150の検出・カウントを実行する
+    
+    Parameters:
+    - file: PDF図面ファイル（アップロード）
+    - dpi: 画像変換解像度（デフォルト200）
+    - prompt: AI分析プロンプト（図面解析・PF100/PF150カウント用にカスタマイズ済み）
+    
+    Returns:
+    - 図面分析結果
+    - PF100/PF150のカウント数
+    - 画像プレビュー
+    - メタデータ
     """
     print(f"📄 PDF分析開始: {file.filename}")
     
@@ -93,6 +126,9 @@ async def analyze_pdf(
             print("📄 単一ページ分析中...")
             overall_analysis = await gemini_analyzer.analyze_image(images[0], prompt)
             print("✅ 単一ページ分析完了")
+
+        # PF100/PF150のカウント結果を抽出
+        pf_counts = _extract_pf_counts(overall_analysis)
         
         print(f"🎉 PDF分析完了: {file.filename}")
         
@@ -100,9 +136,11 @@ async def analyze_pdf(
             "filename": file.filename,
             "total_pages": len(images),
             "analysis": overall_analysis,
+            "pf_counts": pf_counts,
             "images": preview_images,
             "prompt": prompt,
-            "dpi": dpi
+            "dpi": dpi,
+            "analysis_type": "図面PDF解析 (PF100/PF150カウント)"
         }
         
     except Exception as e:
@@ -127,6 +165,90 @@ def _create_image_previews(images: list) -> list:
         })
     
     return preview_images
+
+
+def _extract_pf_counts(analysis_text: str) -> dict:
+    """
+    AI分析結果からPF100とPF150のカウント数を抽出
+    """
+    pf_counts = {
+        "PF100": 0,
+        "PF150": 0,
+        "extraction_details": {
+            "found_pf100_patterns": [],
+            "found_pf150_patterns": []
+        }
+    }
+    
+    try:
+        # PF100のパターンを検索
+        pf100_patterns = [
+            r'PF100[:\s]*(\d+)[箇個ヶ]所',
+            r'PF100[:\s]*(\d+)箇所',
+            r'PF100[:\s]*(\d+)個',
+            r'PF100[:\s]*(\d+)ヶ所',
+            r'PF100[:\s]*(\d+)\s*箇所',
+            r'「?PF100」?[:\s]*(\d+)',
+            r'PF100.*?(\d+)箇所',
+            r'PF100.*?(\d+)個所'
+        ]
+        
+        # PF150のパターンを検索
+        pf150_patterns = [
+            r'PF150[:\s]*(\d+)[箇個ヶ]所',
+            r'PF150[:\s]*(\d+)箇所',
+            r'PF150[:\s]*(\d+)個',
+            r'PF150[:\s]*(\d+)ヶ所',
+            r'PF150[:\s]*(\d+)\s*箇所',
+            r'「?PF150」?[:\s]*(\d+)',
+            r'PF150.*?(\d+)箇所',
+            r'PF150.*?(\d+)個所'
+        ]
+        
+        # PF100を検索
+        for pattern in pf100_patterns:
+            matches = re.findall(pattern, analysis_text, re.IGNORECASE)
+            if matches:
+                pf_counts["PF100"] = int(matches[0])
+                pf_counts["extraction_details"]["found_pf100_patterns"].append({
+                    "pattern": pattern,
+                    "count": int(matches[0])
+                })
+                break
+        
+        # PF150を検索
+        for pattern in pf150_patterns:
+            matches = re.findall(pattern, analysis_text, re.IGNORECASE)
+            if matches:
+                pf_counts["PF150"] = int(matches[0])
+                pf_counts["extraction_details"]["found_pf150_patterns"].append({
+                    "pattern": pattern,
+                    "count": int(matches[0])
+                })
+                break
+                
+        # 単純な文字列検索もバックアップとして実行
+        if pf_counts["PF100"] == 0:
+            pf100_mentions = len(re.findall(r'PF100', analysis_text, re.IGNORECASE))
+            if pf100_mentions > 0:
+                pf_counts["extraction_details"]["found_pf100_patterns"].append({
+                    "pattern": "simple_mention_count",
+                    "count": pf100_mentions
+                })
+        
+        if pf_counts["PF150"] == 0:
+            pf150_mentions = len(re.findall(r'PF150', analysis_text, re.IGNORECASE))
+            if pf150_mentions > 0:
+                pf_counts["extraction_details"]["found_pf150_patterns"].append({
+                    "pattern": "simple_mention_count", 
+                    "count": pf150_mentions
+                })
+                
+    except Exception as e:
+        print(f"⚠️ PFカウント抽出エラー: {e}")
+        pf_counts["extraction_error"] = str(e)
+    
+    return pf_counts
 
 
 if __name__ == "__main__":

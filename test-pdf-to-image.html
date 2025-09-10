@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PDF プレビューツール</title>
+    <title>図面PDF解析ツール - PF100/PF150カウント</title>
     <style>
       * {
         box-sizing: border-box;
@@ -248,21 +248,22 @@
   </head>
   <body>
     <div class="container">
-      <h1>📄 PDF 分析ツール</h1>
+      <h1>📐 図面PDF解析ツール</h1>
 
       <div class="tab-content">
         <div id="image-tab" class="tab-pane active">
           <div class="info">
-            <strong>PDF 分析機能:</strong><br />
-            1. PDFファイルを選択<br />
-            2. 分析用のプロンプトを入力<br />
-            3. PDFを画像に変換してGemini AIで分析<br />
-            4. 分析結果と画像プレビューを表示
+            <strong>図面PDF解析機能:</strong><br />
+            1. 図面PDFファイルを選択<br />
+            2. AI分析でPF100/PF150文言を自動検出<br />
+            3. それぞれの箇所数を自動カウント<br />
+            4. 解析結果と画像プレビューを表示<br />
+            <small style="color: #666; margin-top: 10px; display: block;">※ デフォルトで図面解析用プロンプトが設定されています</small>
           </div>
 
           <div class="upload-area" id="image-upload-area">
-            <h3>📄 PDFファイルをアップロード</h3>
-            <p>ファイルをドラッグ&ドロップまたは選択してください</p>
+            <h3>📐 図面PDFファイルをアップロード</h3>
+            <p>図面PDFファイルをドラッグ&ドロップまたは選択してください</p>
             <div class="file-input-wrapper">
               <label for="image-pdf-file" class="file-input-label">
                 ファイルを選択
@@ -277,8 +278,14 @@
             <div class="option-group">
               <label for="analysis-prompt">分析プロンプト:</label>
               <textarea id="analysis-prompt" 
-                       style="width: 100%; height: 80px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-family: inherit; resize: vertical;"
-                       placeholder="この文書について説明してください。">この文書について説明してください。</textarea>
+                       style="width: 100%; height: 120px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-family: inherit; resize: vertical;"
+                       placeholder="図面PDF解析用プロンプト（デフォルト設定済み）">この図面PDFを詳しく分析してください。特に以下の点に注目してください：
+1. 図面内に記載されている「PF100」および「PF150」の文言を全て検出し、それぞれの箇所数をカウントしてください。
+2. それぞれの文言が指し示すポイント（位置や対象）を特定してください。
+3. 図面の全体的な構造と主要なコンポーネントを説明してください。
+4. 検出結果は以下の形式で明記してください：
+   - PF100: X箇所
+   - PF150: Y箇所</textarea>
             </div>
             <div class="option-group">
               <label for="dpi-setting">DPI設定:</label>
@@ -286,16 +293,29 @@
               <small style="color: #666; margin-left: 10px;">画像の解像度（72-600）</small>
             </div>
             <button class="upload-btn" id="image-upload-btn" onclick="analyzePDF()">
-              PDFを分析
+              🔍 図面PDFを分析（PF100/PF150カウント）
             </button>
           </div>
 
           <div class="status" id="image-status"></div>
           
           <div class="preview-container" id="preview-container">
-            <div class="preview-title">分析結果</div>
+            <div class="preview-title">📊 PF100/PF150 カウント結果</div>
+            <div id="pf-counts-result" style="background: #e8f5e8; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #28a745; display: none;">
+              <div style="display: flex; gap: 30px; justify-content: center; text-align: center;">
+                <div>
+                  <div style="font-size: 24px; font-weight: bold; color: #155724;" id="pf100-count">0</div>
+                  <div style="color: #155724; margin-top: 5px;">PF100箇所</div>
+                </div>
+                <div>
+                  <div style="font-size: 24px; font-weight: bold; color: #155724;" id="pf150-count">0</div>
+                  <div style="color: #155724; margin-top: 5px;">PF150箇所</div>
+                </div>
+              </div>
+            </div>
+            <div class="preview-title">🤖 AI分析結果</div>
             <div id="analysis-result" style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px; white-space: pre-wrap; line-height: 1.6; display: none;"></div>
-            <div class="preview-title">画像プレビュー</div>
+            <div class="preview-title">🖼️ 画像プレビュー</div>
             <div id="preview-content"></div>
           </div>
         </div>
@@ -349,11 +369,12 @@
         document.getElementById("preview-container").style.display = "none";
         document.getElementById("preview-content").innerHTML = "";
         document.getElementById("analysis-result").style.display = "none";
+        document.getElementById("pf-counts-result").style.display = "none";
 
         const formData = new FormData();
         formData.append("file", fileInput.files[0]);
         
-        const prompt = promptInput.value.trim() || "この文書について説明してください。";
+        const prompt = promptInput.value.trim() || "この図面PDFを詳しく分析してください。特に以下の点に注目してください：\\n1. 図面内に記載されている「PF100」および「PF150」の文言を全て検出し、それぞれの箇所数をカウントしてください。\\n2. それぞれの文言が指し示すポイント（位置や対象）を特定してください。\\n3. 図面の全体的な構造と主要なコンポーネントを説明してください。\\n4. 検出結果は以下の形式で明記してください：\\n   - PF100: X箇所\\n   - PF150: Y箇所";
         const dpi = dpiInput.value || 200;
 
         try {
@@ -388,6 +409,14 @@
             const result = await response.json();
             
             showStatus("image-status", "分析完了！", "success");
+            
+            // PF100/PF150カウント結果を表示
+            if (result.pf_counts) {
+              const pfCountsDiv = document.getElementById("pf-counts-result");
+              document.getElementById("pf100-count").textContent = result.pf_counts.PF100 || 0;
+              document.getElementById("pf150-count").textContent = result.pf_counts.PF150 || 0;
+              pfCountsDiv.style.display = "block";
+            }
             
             // 分析結果を表示
             const analysisDiv = document.getElementById("analysis-result");
@@ -438,10 +467,19 @@
             // 分析情報を表示
             const infoDiv = document.createElement("div");
             infoDiv.style.cssText = "margin-top: 20px; padding: 15px; background: #e9ecef; border-radius: 8px; font-size: 14px; color: #666;";
+            
+            let pfCountsInfo = "";
+            if (result.pf_counts) {
+              pfCountsInfo = `
+                <strong>検出結果:</strong> PF100: ${result.pf_counts.PF100 || 0}箇所, PF150: ${result.pf_counts.PF150 || 0}箇所<br>
+              `;
+            }
+            
             infoDiv.innerHTML = `
               <strong>ファイル名:</strong> ${result.filename}<br>
               <strong>ページ数:</strong> ${result.total_pages}<br>
-              <strong>プロンプト:</strong> ${result.prompt}<br>
+              ${pfCountsInfo}
+              <strong>解析タイプ:</strong> ${result.analysis_type || "図面PDF解析"}<br>
               <strong>DPI:</strong> ${result.dpi}
             `;
             previewContent.appendChild(infoDiv);
@@ -458,7 +496,7 @@
           );
         } finally {
           uploadBtn.disabled = false;
-          uploadBtn.textContent = "PDFを分析";
+          uploadBtn.textContent = "🔍 図面PDFを分析（PF100/PF150カウント）";
         }
       }
 
