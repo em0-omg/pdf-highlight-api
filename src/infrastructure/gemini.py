@@ -77,63 +77,35 @@ class GeminiImageAnalyzer:
         self, image: Image.Image, target_texts: List[str] = ["PF100", "PF150"]
     ) -> Dict[str, Any]:
         """
-        図面画像内の銃弾型記号を検出し、座標情報を取得する
+        図面画像内で指定されたキーワードを含む文字列を検出し、座標情報を取得する
 
         Args:
             image: PIL Imageオブジェクト
-            target_texts: 検出対象のテキストリスト（デフォルト: PF100, PF150）
+            target_texts: 検出対象のキーワードリスト（デフォルト: PF100, PF150）
 
         Returns:
             dict: 検出結果と座標情報
         """
-        target_list = ", ".join(target_texts)
-
+        keywords_list = "、".join([f'「{text}」' for text in target_texts])
+        
         coordinate_prompt = f"""
-この図面画像から以下の条件を満たす記号のみを検出してください。
+画像の赤い枠の中が図面です。
+図面の中から{keywords_list}を含む文字列を全て検出してハイライトしてください。
+記号や単位が付いた文字列、様々な表記のバリエーションも検出対象とします。
 
-**検出条件**：
-1. 赤い枠で囲まれた図面部分内に存在すること
-2. 銃弾型の形状をした記号（先端が丸く、後部が四角い）
-3. その記号に線、矢印、引き出し線で「{target_list}」の文字が関連付けられている
-4. 記号と文字が視覚的に明確に関連している（線で接続されている）
-
-**重要な注意点**：
-- 赤枠の外側にある文字は完全に無視する
-- 赤枠内の図面部分のみを分析対象とする  
-- 記号の形状が銃弾型（カプセル型、先丸後角）であることを厳密に確認
-- 単なる円形や四角形の記号は対象外
-- 文字だけで記号と関連付けられていないものは除外
-- 記号と文字を結ぶ線や矢印が明確に見える場合のみ検出
-
-**検出手順**：
-1. まず赤い枠の位置を特定し、その内側のエリアのみを注目する
-2. 赤枠内で銃弾型の記号を探す（先端が丸く後部が四角い形状）
-3. その記号から線や矢印で文字に接続されているかを確認
-4. 接続された文字が「PF100」または「PF150」であることを確認
-5. 記号と文字の両方の座標を記録する
-
-JSON形式で厳密に回答:
+JSON形式で回答:
 {{
     "detections": [
         {{
-            "text": "関連する文字（PF100またはPF150）",
-            "symbol_bbox": [記号のx座標, y座標, 幅, 高さ],
-            "text_bbox": [文字のx座標, y座標, 幅, 高さ],
-            "confidence": 0.0から1.0の信頼度,
-            "symbol_shape": "bullet_like",
-            "has_connection": true,
-            "inside_red_frame": true
+            "text": "検出された文字列",
+            "text_bbox": [x座標, y座標, 幅, 高さ],
+            "confidence": 0.8
         }}
     ],
     "summary": {{
-        "total_detections": 検出総数,
-        "pf100_count": PF100関連記号の数,
-        "pf150_count": PF150関連記号の数,
-        "note": "赤枠内の銃弾型記号とPF100/PF150文字の関連付けを検出"
+        "total_detections": 検出総数
     }}
 }}
-
-必ずJSON形式で回答し、他の説明は一切含めないでください。
 """
 
         try:
@@ -169,46 +141,22 @@ JSON形式で厳密に回答:
         """
         より柔軟なプロンプトでのリトライ検出
         """
-        target_list = ", ".join(target_texts)
+        flexible_keywords = "、".join([f'「{text}」' for text in target_texts])
         
         flexible_prompt = f"""
-この画像を注意深く観察し、以下の条件に完全に合致するもののみを検出してください：
+赤い枠の中の図面から{flexible_keywords}を含む文字列を全て見つけてください。
+記号や単位が付いた文字列も含めて検出してください。
 
-**厳格な検出条件**：
-1. 赤い枠で囲まれた図面エリア内のみを検索対象とする
-2. 銃弾型または楕円と四角の組み合わせの記号を探す
-3. その記号から矢印、線、引き出し線で「{target_list}」という文字列に接続されている
-4. 記号と文字の間に明確な視覚的関連性がある（線で結ばれている）
-
-**除外すべきもの**：
-- 赤枠の外側にある全ての文字・記号
-- 記号と関連付けられていない単独の文字
-- 銃弾型ではない単純な図形
-- 線や矢印で接続されていない文字
-
-**検出要件**：
-- 記号は赤枠内に存在すること
-- 記号の形状が明確に銃弾型またはカプセル型であること  
-- 記号と文字が線・矢印・引き出し線で物理的に接続されていること
-- 接続された文字がPF100またはPF150であること
-
-以下の形式で回答してください：
 {{
     "detections": [
         {{
             "text": "見つけた文字列",
-            "symbol_bbox": [記号のx座標, y座標, 幅, 高さ],
-            "text_bbox": [文字のx座標, y座標, 幅, 高さ],
-            "confidence": 信頼度(0.1-1.0),
-            "has_connection": true,
-            "inside_red_frame": true
+            "text_bbox": [x, y, 幅, 高さ],
+            "confidence": 0.7
         }}
     ],
     "summary": {{
-        "total_detections": 見つけた総数,
-        "pf100_count": PF100の個数,
-        "pf150_count": PF150の個数,
-        "note": "赤枠内で記号と文字が線で接続されたもののみ"
+        "total_detections": 合計数
     }}
 }}
 """
@@ -240,7 +188,7 @@ JSON形式で厳密に回答:
         改良されたフォールバック分析 - 推測ベースでの検出
         """
         detections = []
-        summary = {"total_detections": 0, "pf100_count": 0, "pf150_count": 0}
+        summary = {"total_detections": 0}
         
         # 画像サイズ情報を取得
         width, height = image.size
@@ -264,11 +212,9 @@ JSON形式で厳密に回答:
                     flexible_matches = re.findall(flexible_pattern, response_text, re.IGNORECASE)
                     count = len(flexible_matches)
             
-            if "pf100" in text.lower():
-                summary["pf100_count"] = count
-            elif "pf150" in text.lower():
-                summary["pf150_count"] = count
-                
+            # キーワードごとのカウントを記録（動的）
+            keyword_key = f"{text.lower().replace('φ', 'phi').replace('Φ', 'phi')}_count"
+            summary[keyword_key] = count
             summary["total_detections"] += count
 
             # 画像サイズに基づいた推測座標を生成
@@ -310,14 +256,13 @@ JSON形式で厳密に回答:
         JSON解析に失敗した場合の従来のフォールバック分析（後方互換性のため維持）
         """
         detections = []
-        summary = {"total_detections": 0, "pf100_count": 0, "pf150_count": 0}
+        summary = {"total_detections": 0}
 
         for text in target_texts:
             count = response_text.upper().count(text.upper())
-            if "pf100" in text.lower():
-                summary["pf100_count"] = count
-            elif "pf150" in text.lower():
-                summary["pf150_count"] = count
+            # キーワードごとのカウントを記録（動的）
+            keyword_key = f"{text.lower().replace('φ', 'phi').replace('Φ', 'phi')}_count"
+            summary[keyword_key] = count
             summary["total_detections"] += count
 
             # ダミー座標
@@ -393,7 +338,7 @@ JSON形式で厳密に回答:
                             stroke_fill=(0, 0, 0, 255)
                         )
 
-                # テキストのハイライト（symbol_bboxがない場合のフォールバック）
+                # テキストのハイライト
                 text_bbox = detection.get("text_bbox", detection.get("bbox", []))
                 if text_bbox and len(text_bbox) >= 4:
                     x, y, width, height = text_bbox
@@ -408,7 +353,7 @@ JSON形式で厳密に回答:
                             [x, y, x + width, y + height],
                             fill=color,
                             outline=(color[0], color[1], color[2], 255),  # 枠線は不透明
-                            width=2,
+                            width=3,
                         )
 
                         # テキストラベルを追加
