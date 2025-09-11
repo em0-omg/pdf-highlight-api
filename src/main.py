@@ -5,7 +5,6 @@ import uvicorn
 import io
 import base64
 import os
-import re
 from src.infrastructure.gemini import GeminiImageAnalyzer
 
 app = FastAPI(
@@ -65,30 +64,23 @@ async def analyze_pdf(
     file: UploadFile = File(...),
     dpi: int = 200,
     highlight: bool = Query(True, description="ハイライト機能を有効にするかどうか"),
-    prompt: str = Query(
-        "この図面上で「PF100φ」と「PF150φ」の文言を特定し、正確にカウントしてください。\n"
-        "他の記号や文字は無視し、PF100φ、PF150φのみに特化して検出してください。\n"
-        "検出結果は以下の形式で回答してください：\n"
-        "- PF100φ: X箇所\n"
-        "- PF150φ: Y箇所",
-        description="PF100φ/PF150φ文言検出用プロンプト",
-    ),
+    keywords: str = Query("PF100,PF150", description="検出したいキーワード（カンマ区切り）※矢印で図面記号を指し示しているもののみ検出"),
+    model: str = Query("gemini-2.5-pro", description="使用するGeminiモデル（gemini-2.5-pro または gemini-2.5-flash）"),
 ):
     """
-    図面PDFファイルでPF100φ/PF150φ文言を検出し、カウント・座標取得を実行する
+    PDFファイル内の指定キーワードをハイライト表示する（改良された高精度検出）
 
     Parameters:
     - file: PDFファイル（アップロード）
     - dpi: 画像変換解像度（デフォルト200）
     - highlight: ハイライト機能有効化フラグ（デフォルトTrue）
-    - prompt: PF100φ/PF150φ文言検出特化プロンプト
+    - keywords: 検出したいキーワード（カンマ区切り）
 
     Returns:
-    - PF100φ/PF150φ文言検出結果
-    - 正確なカウント数と座標情報
+    - 座標情報（積極的検出 + フォールバック機能）
     - ハイライト付き画像（highlight=Trueの場合）
     """
-    print(f"📄 PF100φ/PF150φ文言検出開始: {file.filename}")
+    print(f"📄 ハイライト処理開始: {file.filename}")
 
     if not gemini_available:
         print("❌ Gemini API不可: APIキーが設定されていません")
@@ -117,22 +109,32 @@ async def analyze_pdf(
         # 座標検出とハイライト処理
         highlighted_images = []
         all_detection_data = []
+        keyword_list = [kw.strip() for kw in keywords.split(",") if kw.strip()]
 
-        if highlight:
-            print("🎯 PF100φ/PF150φ文言座標検出を開始...")
+        if highlight and keyword_list:
+            print(f"🎯 文言座標検出を開始: {keyword_list} (積極的検出モード)")
+            print(f"🤖 使用モデル: {model}")
+            
+            # 指定されたモデルでanalyzerを作成
+            try:
+                model_analyzer = GeminiImageAnalyzer(model_name=model)
+            except Exception as e:
+                print(f"❌ モデル初期化エラー: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Failed to initialize model {model}: {str(e)}")
+            
             for i, image in enumerate(images):
-                print(f"📍 ページ{i+1}: PF100φ/PF150φ文言検出中...")
-                if gemini_analyzer:
+                print(f"📍 ページ{i+1}: 文言検出中...")
+                if model_analyzer:
                     detection_data = (
-                        await gemini_analyzer.analyze_image_with_coordinates(
-                            image, ["PF100φ", "PF150φ"]
+                        await model_analyzer.analyze_image_with_coordinates(
+                            image, keyword_list
                         )
                     )
                     all_detection_data.append(detection_data)
 
                     if "error" not in detection_data:
                         print(f"🎨 ページ{i+1}: ハイライト描画中...")
-                        highlighted_image = gemini_analyzer.create_highlighted_image(
+                        highlighted_image = model_analyzer.create_highlighted_image(
                             image, detection_data
                         )
 
@@ -172,72 +174,22 @@ async def analyze_pdf(
                     )
             print("✅ 全ページのハイライト処理完了")
 
-        # PF100φ/PF150φ文言検出分析を実行
-        print("🤖 PF100φ/PF150φ文言検出分析を開始...")
-        if gemini_analyzer:
-            if len(images) > 1:
-                print(
-                    f"📚 複数ページ分析: {len(images)}ページでPF100φ/PF150φ文言を検出中..."
-                )
-                analysis_results = await gemini_analyzer.analyze_images(images, prompt)
-                overall_analysis = (
-                    f"全{len(images)}ページのPF100φ/PF150φ検出結果:\n"
-                    + "\n\n".join(
-                        [
-                            f"ページ{i+1}: {result}"
-                            for i, result in enumerate(analysis_results)
-                        ]
-                    )
-                )
-                print("✅ 複数ページPF100φ/PF150φ検出完了")
-            else:
-                print("📄 単一ページPF100φ/PF150φ検出中...")
-                overall_analysis = await gemini_analyzer.analyze_image(
-                    images[0], prompt
-                )
-                print("✅ 単一ページPF100φ/PF150φ検出完了")
-        else:
-            overall_analysis = "Gemini分析機能は利用できません。"
 
-        # PF100φ/PF150φのカウント結果を抽出（座標データとテキスト分析を統合）
-        pf_counts = _extract_pf_counts(overall_analysis)
-
-        # 座標データからPF100φ/PF150φの正確なカウントを取得
-        if all_detection_data:
-            coordinate_counts = {"PF100φ": 0, "PF150φ": 0, "total_detections": 0}
-            for detection_data in all_detection_data:
-                if "summary" in detection_data:
-                    coordinate_counts["PF100φ"] += detection_data["summary"].get(
-                        "pf100_count", 0
-                    )
-                    coordinate_counts["PF150φ"] += detection_data["summary"].get(
-                        "pf150_count", 0
-                    )
-                    coordinate_counts["total_detections"] += detection_data[
-                        "summary"
-                    ].get("total_detections", 0)
-
-            # 座標ベースのPF100φ/PF150φカウントをメインに使用
-            pf_counts["coordinate_based"] = coordinate_counts
-
-        print(f"🎉 PF100φ/PF150φ文言検出完了: {file.filename}")
+        print(f"🎉 ハイライト処理完了: {file.filename}")
 
         response_data = {
             "filename": file.filename,
             "total_pages": len(images),
-            "analysis": overall_analysis,
-            "pf_counts": pf_counts,
             "images": preview_images,
-            "prompt": prompt,
+            "keywords": keyword_list,
             "dpi": dpi,
             "highlight_enabled": highlight,
-            "analysis_type": "PF100φ/PF150φ文言検出特化型API",
+            "analysis_type": "文言ハイライト特化型API",
         }
 
-        # ハイライト機能が有効な場合のみ追加
-        if highlight:
-            response_data["highlighted_images"] = highlighted_images
-            response_data["detection_data"] = all_detection_data
+        # ハイライトデータの追加
+        response_data["highlighted_images"] = highlighted_images
+        response_data["detection_data"] = all_detection_data
 
         return response_data
 
@@ -264,111 +216,6 @@ def _create_image_previews(images: list) -> list:
     return preview_images
 
 
-def _extract_pf_counts(analysis_text: str) -> dict:
-    """
-    AI分析結果からPF100φとPF150φのカウント数を抽出
-    """
-    pf_counts = {
-        "PF100φ": 0,
-        "PF150φ": 0,
-        "extraction_details": {"found_pf100_patterns": [], "found_pf150_patterns": []},
-    }
-
-    try:
-        # PF100φのパターンを検索
-        pf100_patterns = [
-            r"PF100φ[:\s]*(\d+)[箇個ヶ]所",
-            r"PF100Φ[:\s]*(\d+)[箇個ヶ]所",
-            r"PF100φ[:\s]*(\d+)箇所",
-            r"PF100Φ[:\s]*(\d+)箇所",
-            r"PF100φ[:\s]*(\d+)個",
-            r"PF100Φ[:\s]*(\d+)個",
-            r"PF100φ[:\s]*(\d+)ヶ所",
-            r"PF100Φ[:\s]*(\d+)ヶ所",
-            r"PF100φ[:\s]*(\d+)\s*箇所",
-            r"PF100Φ[:\s]*(\d+)\s*箇所",
-            r"「?PF100φ」?[:\s]*(\d+)",
-            r"「?PF100Φ」?[:\s]*(\d+)",
-            r"PF100φ.*?(\d+)箇所",
-            r"PF100Φ.*?(\d+)箇所",
-            r"PF100φ.*?(\d+)個所",
-            r"PF100Φ.*?(\d+)個所",
-        ]
-
-        # PF150φのパターンを検索
-        pf150_patterns = [
-            r"PF150φ[:\s]*(\d+)[箇個ヶ]所",
-            r"PF150Φ[:\s]*(\d+)[箇個ヶ]所",
-            r"PF150φ[:\s]*(\d+)箇所",
-            r"PF150Φ[:\s]*(\d+)箇所",
-            r"PF150φ[:\s]*(\d+)個",
-            r"PF150Φ[:\s]*(\d+)個",
-            r"PF150φ[:\s]*(\d+)ヶ所",
-            r"PF150Φ[:\s]*(\d+)ヶ所",
-            r"PF150φ[:\s]*(\d+)\s*箇所",
-            r"PF150Φ[:\s]*(\d+)\s*箇所",
-            r"「?PF150φ」?[:\s]*(\d+)",
-            r"「?PF150Φ」?[:\s]*(\d+)",
-            r"PF150φ.*?(\d+)箇所",
-            r"PF150Φ.*?(\d+)箇所",
-            r"PF150φ.*?(\d+)個所",
-            r"PF150Φ.*?(\d+)個所",
-        ]
-
-        # PF100φを検索
-        for pattern in pf100_patterns:
-            matches = re.findall(pattern, analysis_text, re.IGNORECASE)
-            if matches:
-                pf_counts["PF100φ"] = int(matches[0])
-                extraction_details = pf_counts.get("extraction_details")
-                if isinstance(extraction_details, dict):
-                    extraction_details["found_pf100_patterns"].append(
-                        {"pattern": pattern, "count": int(matches[0])}
-                    )
-                break
-
-        # PF150φを検索
-        for pattern in pf150_patterns:
-            matches = re.findall(pattern, analysis_text, re.IGNORECASE)
-            if matches:
-                pf_counts["PF150φ"] = int(matches[0])
-                extraction_details = pf_counts.get("extraction_details")
-                if isinstance(extraction_details, dict):
-                    extraction_details["found_pf150_patterns"].append(
-                        {"pattern": pattern, "count": int(matches[0])}
-                    )
-                break
-
-        # 単純な文字列検索もバックアップとして実行（PF100φ/PF150φのみ）
-        if pf_counts["PF100φ"] == 0:
-            pf100_mentions = len(re.findall(r"PF100[φΦ]", analysis_text, re.IGNORECASE))
-            if pf100_mentions > 0:
-                extraction_details = pf_counts.get("extraction_details")
-                if isinstance(extraction_details, dict):
-                    extraction_details["found_pf100_patterns"].append(
-                        {
-                            "pattern": "simple_pf100phi_mention_count",
-                            "count": pf100_mentions,
-                        }
-                    )
-
-        if pf_counts["PF150φ"] == 0:
-            pf150_mentions = len(re.findall(r"PF150[φΦ]", analysis_text, re.IGNORECASE))
-            if pf150_mentions > 0:
-                extraction_details = pf_counts.get("extraction_details")
-                if isinstance(extraction_details, dict):
-                    extraction_details["found_pf150_patterns"].append(
-                        {
-                            "pattern": "simple_pf150phi_mention_count",
-                            "count": pf150_mentions,
-                        }
-                    )
-
-    except Exception as e:
-        print(f"⚠️ PF100φ/PF150φカウント抽出エラー: {e}")
-        pf_counts["extraction_error"] = str(e)
-
-    return pf_counts
 
 
 if __name__ == "__main__":
