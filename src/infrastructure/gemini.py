@@ -977,6 +977,189 @@ class GeminiImageAnalyzer:
 
         return {"detections": detections, "summary": summary, "fallback": True}
 
+    async def analyze_pipe_shafts(
+        self,
+        pdf_bytes: bytes,
+        *,
+        debug: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        PDFドキュメントを解析してパイプシャフトの座標を検出する。
+
+        Args:
+            pdf_bytes: PDFファイルの生バイト列
+            debug: デバッグ情報を付与する
+
+        Returns:
+            Dict[str, Any]: 構造化された検出結果
+        """
+        # 出力スキーマ（パイプシャフト検出用）
+        detection_schema: Dict[str, Any] = {
+            "type": "object",
+            "properties": {
+                "summary": {
+                    "type": "object",
+                    "properties": {
+                        "total_detections": {"type": "integer"},
+                        "notes": {"type": "string"},
+                    },
+                    "required": ["total_detections"],
+                },
+                "pages": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "page": {"type": "integer"},
+                            "detections": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "type": {
+                                            "type": "string",
+                                            "description": "パイプシャフトの種類（PF100, PF150など）",
+                                        },
+                                        "position": {
+                                            "type": "object",
+                                            "properties": {
+                                                "x": {"type": "integer", "minimum": 0, "maximum": 1000},
+                                                "y": {"type": "integer", "minimum": 0, "maximum": 1000},
+                                            },
+                                            "required": ["x", "y"],
+                                        },
+                                        "bbox": {
+                                            "type": "array",
+                                            "items": {"type": "integer", "minimum": 0, "maximum": 1000},
+                                            "minItems": 4,
+                                            "maxItems": 4,
+                                            "description": "[x, y, width, height] normalized to [0,1000]",
+                                        },
+                                        "confidence": {"type": "number"},
+                                        "description": {"type": "string"},
+                                    },
+                                    "required": ["position"],
+                                },
+                            },
+                        },
+                        "required": ["page", "detections"],
+                    },
+                },
+            },
+            "required": ["summary", "pages"],
+        }
+
+        prompt = (
+            "あなたは建築図面解析の専門アシスタントです。"
+            "このPDFは図面を表しています。各ページから以下を検出してください:\n"
+            "- 100mm径の記号（PF100）\n"
+            "- 150mm径の記号（PF150）\n"
+            "- パイプシャフト（PS）の位置\n\n"
+            "検出要件:\n"
+            "- PF100/PF150は通常、円形で中に十字の線がある記号として表されます\n"
+            "- PF100、PF150、またはPSという文字が近くにある場合があります\n"
+            "- 座標は[0,1000]の範囲に正規化して返すこと。ページの左上を(0,0)、右下を(1000,1000)とする\n"
+            "- position.x, position.y は検出対象の中心座標を[0,1000]の整数で記録\n"
+            "- 矩形が分かる場合は bbox=[x,y,width,height] を[0,1000]の範囲で併記（オプション）\n"
+            "- 検出がなければ該当ページのdetectionsは空配列\n"
+            "- typeフィールドには \"PF100\", \"PF150\", \"PS\" のいずれかを設定\n"
+            "- スキーマに沿ったJSONのみを返すこと（追加の説明文は返さない）\n"
+        )
+
+        try:
+            contents = [
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part.from_text(text=prompt),
+                        types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf"),
+                    ],
+                )
+            ]
+
+            generation_config = types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=detection_schema,
+            )
+
+            try:
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=contents,
+                    config=generation_config,
+                )
+            except Exception:
+                # 一部環境でstructured output未対応な場合のフォールバック
+                fallback_prompt = (
+                    prompt
+                    + "\n\n必ず次の形式のJSONのみを返してください: "
+                    + json.dumps(
+                        {
+                            "summary": {
+                                "total_detections": 0,
+                            },
+                            "pages": [],
+                        }
+                    )
+                )
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=[
+                        types.Content(
+                            role="user",
+                            parts=[
+                                types.Part.from_text(text=fallback_prompt),
+                                types.Part.from_bytes(
+                                    data=pdf_bytes, mime_type="application/pdf"
+                                ),
+                            ],
+                        )
+                    ],
+                )
+
+            data = self._extract_structured(response)
+            response_text = (getattr(response, "text", None) or "").strip()
+
+            if not isinstance(data, dict) or not data:
+                # テキストからのフォールバックJSONパース
+                try:
+                    data = json.loads(response_text) if response_text else None
+                except Exception:
+                    data = None
+
+            if not isinstance(data, dict) or "summary" not in data or "pages" not in data:
+                fb: Dict[str, Any] = {
+                    "summary": {
+                        "total_detections": 0,
+                        "notes": "fallback: failed to parse structured output",
+                    },
+                    "pages": [],
+                }
+                if debug:
+                    fb["_debug"] = {
+                        "prompt": prompt,
+                        "raw_response_text": response_text,
+                        "model": self.model_name,
+                    }
+                return fb
+
+            if debug:
+                data.setdefault("_debug", {})
+                try:
+                    data["_debug"].update(
+                        {
+                            "prompt": prompt,
+                            "raw_response_text": response_text or json.dumps(data),
+                            "model": self.model_name,
+                        }
+                    )
+                except Exception:
+                    pass
+
+            return data
+        except Exception as e:
+            raise Exception(f"パイプシャフト検出エラー: {str(e)}")
+
     def create_highlighted_image(
         self, original_image: Image.Image, detection_data: Dict[str, Any]
     ) -> Image.Image:
@@ -1025,3 +1208,181 @@ class GeminiImageAnalyzer:
             pass
 
         return Image.alpha_composite(base, overlay)
+
+    async def detect_target_image_in_pdf(
+        self,
+        pdf_bytes: bytes,
+        custom_target_image: Image.Image = None,
+        *,
+        debug: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        PDFドキュメントを解析してターゲット画像と同じパターンを検出する。
+
+        Args:
+            pdf_bytes: PDFファイルの生バイト列
+            custom_target_image: カスタムターゲット画像（未指定の場合はデフォルトのtarget.png）
+            debug: デバッグ情報を付与する
+
+        Returns:
+            Dict[str, Any]: 構造化された検出結果
+        """
+        import pathlib
+        from pdf2image import convert_from_bytes
+        
+        # ターゲット画像の準備
+        if custom_target_image:
+            target_image = custom_target_image
+        else:
+            # デフォルトのtarget.png画像を読み込む
+            target_image_path = (
+                pathlib.Path(__file__).parent.parent
+                / "assets"
+                / "images"
+                / "target.png"
+            )
+            if not target_image_path.exists():
+                raise FileNotFoundError(f"Target image not found: {target_image_path}")
+            target_image = Image.open(target_image_path)
+        
+        # PDFを画像に変換
+        images = convert_from_bytes(pdf_bytes, dpi=200)
+        
+        # 出力スキーマ
+        detection_schema: Dict[str, Any] = {
+            "type": "object",
+            "properties": {
+                "summary": {
+                    "type": "object",
+                    "properties": {
+                        "total_detections": {"type": "integer"},
+                        "notes": {"type": "string"},
+                    },
+                    "required": ["total_detections"],
+                },
+                "pages": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "page": {"type": "integer"},
+                            "detections": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "position": {
+                                            "type": "object",
+                                            "properties": {
+                                                "x": {"type": "integer", "minimum": 0, "maximum": 1000},
+                                                "y": {"type": "integer", "minimum": 0, "maximum": 1000},
+                                            },
+                                            "required": ["x", "y"],
+                                        },
+                                        "confidence": {"type": "number"},
+                                        "description": {"type": "string"},
+                                    },
+                                    "required": ["position"],
+                                },
+                            },
+                        },
+                        "required": ["page", "detections"],
+                    },
+                },
+            },
+            "required": ["summary", "pages"],
+        }
+
+        prompt = (
+            "あなたは画像パターンマッチングの専門家です。\n"
+            "2枚目以降の画像から、1枚目の参照画像（ターゲット画像）と同じパターンを探してください。\n\n"
+            "参照画像の特徴:\n"
+            "- 円形の中に十字の線がある記号\n"
+            "- 建築図面で使用される記号\n\n"
+            "検出要件:\n"
+            "- 各ページで参照画像と同じ形状のパターンをすべて検出\n"
+            "- 回転やサイズの違いがあっても検出すること\n"
+            "- 座標は[0,1000]の範囲に正規化して返すこと。ページの左上を(0,0)、右下を(1000,1000)とする\n"
+            "- position.x, position.y は検出対象の中心座標を[0,1000]の整数で記録\n"
+            "- 検出がなければ該当ページのdetectionsは空配列\n"
+            "- 1枚目は参照画像なので検出対象外（page 1から開始）\n"
+            "- スキーマに沿ったJSONのみを返すこと\n"
+        )
+
+        try:
+            # 画像パートを構築（ターゲット画像 + 各ページ）
+            all_images = [target_image] + images
+            
+            contents = self._build_contents(prompt, *all_images)
+
+            generation_config = types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=detection_schema,
+            )
+
+            try:
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=contents,
+                    config=generation_config,
+                )
+            except Exception:
+                # 構造化出力未対応の場合のフォールバック
+                fallback_prompt = (
+                    prompt
+                    + "\n\n必ず次の形式のJSONのみを返してください: "
+                    + json.dumps(
+                        {
+                            "summary": {
+                                "total_detections": 0,
+                            },
+                            "pages": [],
+                        }
+                    )
+                )
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=self._build_contents(fallback_prompt, *all_images),
+                )
+
+            data = self._extract_structured(response)
+            response_text = (getattr(response, "text", None) or "").strip()
+
+            if not isinstance(data, dict) or not data:
+                try:
+                    data = json.loads(response_text) if response_text else None
+                except Exception:
+                    data = None
+
+            if not isinstance(data, dict) or "summary" not in data or "pages" not in data:
+                fb: Dict[str, Any] = {
+                    "summary": {
+                        "total_detections": 0,
+                        "notes": "fallback: failed to parse structured output",
+                    },
+                    "pages": [],
+                }
+                if debug:
+                    fb["_debug"] = {
+                        "prompt": prompt,
+                        "raw_response_text": response_text,
+                        "model": self.model_name,
+                    }
+                return fb
+
+            if debug:
+                data.setdefault("_debug", {})
+                try:
+                    data["_debug"].update(
+                        {
+                            "prompt": prompt,
+                            "raw_response_text": response_text or json.dumps(data),
+                            "model": self.model_name,
+                        }
+                    )
+                except Exception:
+                    pass
+
+            return data
+        except Exception as e:
+            raise Exception(f"ターゲット画像検出エラー: {str(e)}")

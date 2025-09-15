@@ -56,22 +56,24 @@ else:
     print("📝 Get your API key from: https://makersuite.google.com/app/apikey")
     logger.warning("GEMINI_API_KEY not found; analysis endpoints unavailable")
 
-
 @app.get("/")
 async def hello_world():
     return {
         "message": "図面PDF解析API is running",
         "description": "図面PDFを分析し、PF100/PF150の文言とポイント数をカウントする特化型API",
         "gemini_available": gemini_available,
-        "status": "✅ Ready" if gemini_available else "⚠️ Gemini API Key required",
-        "setup_help": (
-            "Set GEMINI_API_KEY in .env file" if not gemini_available else None
-        ),
+        "grok_available": grok_available,
+        "status": "✅ Ready" if (gemini_available or grok_available) else "⚠️ API Key required",
+        "setup_help": {
+            "gemini": "Set GEMINI_API_KEY in .env file" if not gemini_available else "Available",
+            "grok": "Set XAI_API_KEY in .env file" if not grok_available else "Available"
+        },
         "features": [
             "PF100/PF150文言検出",
             "記号位置座標検出",
             "自動カウント",
             "ハイライト表示",
+            "Gemini & Grok AI 分析",
         ],
     }
 
@@ -361,6 +363,68 @@ async def analyze_pdf(
         raise HTTPException(status_code=500, detail=f"Error processing PDF: {str(e)}")
 
 
+@app.post("/gemini/pipe-shaft-detect")
+async def gemini_pipe_shaft_detect(
+    file: UploadFile = File(..., description="PDFファイルをアップロード"),
+    model: str = Query(
+        "gemini-2.5-pro",
+        description="使用するGeminiモデル（例: gemini-2.5-pro, gemini-2.5-flash）",
+    ),
+    debug: bool = Query(False, description="デバッグ情報（プロンプト/生出力など）を含める"),
+    dpi: int = Query(200, description="画像変換時のDPI（解像度）"),
+):
+    """
+    PDFからパイプシャフトの座標を検出する。
+    
+    - 入力: PDFファイル
+    - 処理: PDFを画像に変換し、Geminiで解析
+    - 出力: パイプシャフトの座標情報（JSON形式）
+    """
+    if not gemini_available:
+        raise HTTPException(
+            status_code=503,
+            detail="Gemini analysis service is not available. Please set GEMINI_API_KEY.",
+        )
+
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+
+    try:
+        pdf_bytes = await file.read()
+        
+        # PDFを画像に変換
+        print(f"🖼️  PDFを画像に変換中... (DPI: {dpi})")
+        images = convert_from_bytes(pdf_bytes, dpi=dpi)
+        print(f"✅ 変換完了: {len(images)}ページの画像を生成")
+        
+        # 画像プレビューデータを作成
+        preview_images = _create_image_previews(images)
+        
+        # Geminiで解析（パイプシャフト検出用のプロンプトを使用）
+        analyzer = GeminiImageAnalyzer(model_name=model)
+        result_json = await analyzer.analyze_pipe_shafts(pdf_bytes, debug=debug)
+        
+        # ハイライト付き画像を作成
+        highlighted_images = []
+        if isinstance(result_json, dict) and "pages" in result_json:
+            highlighted_images = _create_highlighted_images(images, result_json)
+
+        response_payload = {
+            "filename": file.filename,
+            "model": model,
+            "result": result_json,
+            "preview_images": preview_images,
+            "highlighted_images": highlighted_images,
+            "total_pages": len(images),
+        }
+
+        return response_payload
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Gemini pipe shaft detection error")
+        raise HTTPException(status_code=500, detail=f"Error analyzing PDF with Gemini: {str(e)}")
+
 def _create_image_previews(images: list) -> list:
     """
     画像のBase64エンコードプレビューを作成
@@ -383,6 +447,7 @@ def _create_highlighted_images(images: list, detection_data: dict) -> list:
     """
     検出結果に基づいてハイライト付き画像を作成
     座標は1-1000の範囲でスケーリングされているため、実際の画像サイズに変換
+    PF100とPF150のみをハイライト表示
     """
     highlighted_images = []
     
@@ -405,27 +470,30 @@ def _create_highlighted_images(images: list, detection_data: dict) -> list:
         # この ページの検出データを取得
         page_detections = pages_data.get(page_num, [])
         
-        # 各検出位置にハイライトを描画
+        # 各検出位置にハイライトを描画（PF100とPF150のみ）
         for detection in page_detections:
+            # targetまたはtypeフィールドをチェック
+            target_type = detection.get("target", "") or detection.get("type", "")
+            
+            # PF100またはPF150のみハイライト
+            if "PF100" not in target_type and "PF150" not in target_type:
+                continue
+                
             if "position" in detection and "x" in detection["position"] and "y" in detection["position"]:
-                # 1-1000の座標を実際の画像座標に変換
+                # 1-1000の座標を実際の画像座標に変換（中心座標）
                 x = int(detection["position"]["x"] * img_width / 1000)
                 y = int(detection["position"]["y"] * img_height / 1000)
                 
                 # ターゲットタイプによって色を変える
-                target = detection.get("target", "")
-                if "PF100" in target:
+                if "PF100" in target_type:
                     color = "red"
                     outline_color = "darkred"
-                elif "PF150" in target:
+                elif "PF150" in target_type:
                     color = "blue"
                     outline_color = "darkblue"
-                else:
-                    color = "green"
-                    outline_color = "darkgreen"
                 
-                # ハイライト円を描画（半径は画像サイズに応じて調整、誤差を隠すため少し大きめ）
-                radius = max(25, min(img_width, img_height) // 40)
+                # ハイライト円を描画（半径は画像サイズに応じて調整）
+                radius = max(30, min(img_width, img_height) // 35)
                 draw.ellipse(
                     [(x - radius, y - radius), (x + radius, y + radius)],
                     outline=outline_color,
@@ -433,9 +501,149 @@ def _create_highlighted_images(images: list, detection_data: dict) -> list:
                 )
                 # 中心点を描画
                 draw.ellipse(
-                    [(x - 4, y - 4), (x + 4, y + 4)],
+                    [(x - 6, y - 6), (x + 6, y + 6)],
                     fill=color
                 )
+        
+        # Base64エンコード
+        img_buffer = io.BytesIO()
+        img_copy.save(img_buffer, format="PNG")
+        img_buffer.seek(0)
+        img_base64 = base64.b64encode(img_buffer.getvalue()).decode("utf-8")
+        
+        highlighted_images.append({
+            "page": page_num,
+            "image_data": f"data:image/png;base64,{img_base64}",
+            "detections": page_detections
+        })
+    
+    return highlighted_images
+
+
+@app.post("/detect-target-image")
+async def detect_target_image(
+    file: UploadFile = File(..., description="PDFファイルをアップロード"),
+    target_image: UploadFile = File(None, description="検出対象の画像（省略時はtarget.png使用）"),
+    model: str = Query(
+        "gemini-2.5-pro",
+        description="使用するGeminiモデル（例: gemini-2.5-pro, gemini-2.5-flash）",
+    ),
+    debug: bool = Query(False, description="デバッグ情報（プロンプト/生出力など）を含める"),
+    dpi: int = Query(200, description="画像変換時のDPI（解像度）"),
+):
+    """
+    PDFから指定画像（デフォルト: target.png）と同じパターンを検出する。
+    
+    - 入力: PDFファイルとターゲット画像（オプション）
+    - 処理: PDFを画像に変換し、Geminiで画像マッチング
+    - 出力: 検出位置の座標情報（JSON形式）とハイライト画像
+    """
+    if not gemini_available:
+        raise HTTPException(
+            status_code=503,
+            detail="Gemini analysis service is not available. Please set GEMINI_API_KEY.",
+        )
+
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+
+    try:
+        pdf_bytes = await file.read()
+        
+        # PDFを画像に変換
+        print(f"🖼️  PDFを画像に変換中... (DPI: {dpi})")
+        images = convert_from_bytes(pdf_bytes, dpi=dpi)
+        print(f"✅ 変換完了: {len(images)}ページの画像を生成")
+        
+        # 画像プレビューデータを作成
+        preview_images = _create_image_previews(images)
+        
+        # カスタムターゲット画像の処理
+        custom_target_image = None
+        if target_image:
+            target_bytes = await target_image.read()
+            img_buffer = io.BytesIO(target_bytes)
+            custom_target_image = Image.open(img_buffer)
+            print(f"🎯 カスタムターゲット画像を使用: {target_image.filename}")
+        
+        # Geminiで解析（画像マッチング）
+        analyzer = GeminiImageAnalyzer(model_name=model)
+        result_json = await analyzer.detect_target_image_in_pdf(
+            pdf_bytes, 
+            custom_target_image=custom_target_image,
+            debug=debug
+        )
+        
+        # ハイライト付き画像を作成
+        highlighted_images = []
+        if isinstance(result_json, dict) and "pages" in result_json:
+            highlighted_images = _create_target_highlighted_images(images, result_json)
+
+        response_payload = {
+            "filename": file.filename,
+            "model": model,
+            "result": result_json,
+            "preview_images": preview_images,
+            "highlighted_images": highlighted_images,
+            "total_pages": len(images),
+            "target_image": "custom" if target_image else "default (target.png)",
+        }
+
+        return response_payload
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Target image detection error")
+        raise HTTPException(status_code=500, detail=f"Error analyzing PDF with Gemini: {str(e)}")
+
+
+def _create_target_highlighted_images(images: list, detection_data: dict) -> list:
+    """
+    ターゲット画像検出結果に基づいてハイライト付き画像を作成
+    position.x,y座標を中心に矩形を描画
+    """
+    highlighted_images = []
+    
+    # 検出データがpages形式の場合の処理
+    if "pages" in detection_data:
+        pages_data = {page["page"]: page["detections"] for page in detection_data.get("pages", [])}
+    else:
+        pages_data = {}
+    
+    for i, image in enumerate(images):
+        page_num = i + 1
+        # 画像をコピーして描画用に準備
+        img_copy = image.copy()
+        draw = ImageDraw.Draw(img_copy)
+        
+        # 画像の実際のサイズを取得
+        img_width, img_height = img_copy.size
+        
+        # このページの検出データを取得
+        page_detections = pages_data.get(page_num, [])
+        
+        # 各検出位置にハイライトを描画
+        for detection in page_detections:
+            if "position" in detection and "x" in detection["position"] and "y" in detection["position"]:
+                # 1-1000の座標を実際の画像座標に変換（中心座標）
+                x = int(detection["position"]["x"] * img_width / 1000)
+                y = int(detection["position"]["y"] * img_height / 1000)
+                
+                # 赤い矩形でハイライト（target.pngのサイズに基づいて調整）
+                half_width = max(20, min(img_width, img_height) // 50)
+                half_height = max(20, min(img_width, img_height) // 50)
+                
+                # 矩形を描画
+                draw.rectangle(
+                    [(x - half_width, y - half_height), (x + half_width, y + half_height)],
+                    outline="red",
+                    width=3
+                )
+                
+                # 中心に十字マークを描画
+                cross_size = 10
+                draw.line([(x - cross_size, y), (x + cross_size, y)], fill="red", width=2)
+                draw.line([(x, y - cross_size), (x, y + cross_size)], fill="red", width=2)
         
         # Base64エンコード
         img_buffer = io.BytesIO()
