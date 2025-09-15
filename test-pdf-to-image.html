@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PDF文言ハイライトツール</title>
+    <title>PDF記号検出ツール</title>
     <style>
       * {
         box-sizing: border-box;
@@ -331,21 +331,69 @@
         font-size: 14px;
         text-align: center;
       }
+
+      /* ターゲット画像選択UI */
+      .target-picker {
+        display: flex;
+        gap: 16px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .target-preview {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        background: #fff;
+        border: 1px solid #eee;
+        border-radius: 8px;
+        padding: 10px 12px;
+      }
+      .target-preview img {
+        width: 64px;
+        height: 64px;
+        object-fit: contain;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        background: #fafafa;
+      }
+      .target-select-btn {
+        background: #f8f9fa;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        padding: 8px 14px;
+        cursor: pointer;
+        transition: background 0.2s;
+        display: inline-block;
+      }
+      .target-select-btn:hover {
+        background: #e9ecef;
+      }
+      .clear-btn {
+        background: transparent;
+        border: 1px solid #ddd;
+        color: #333;
+        padding: 6px 10px;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      .clear-btn:hover {
+        background: #f3f3f3;
+      }
     </style>
   </head>
   <body>
     <div class="container">
-      <h1>✨ PDF文言ハイライトツール</h1>
+      <h1>✨ PDF記号検出ツール</h1>
 
       <div class="tab-content">
         <div id="image-tab" class="tab-pane active">
           <div class="info">
-            <strong>PDF文言ハイライト機能:</strong><br />
+            <strong>PDF記号検出機能:</strong><br />
             1. PDFファイルを選択<br />
-            2. 検出したいキーワードを指定<br />
-            3. AI分析で指定キーワードを検出<br />
-            4. 検出結果をハイライト表示<br />
-            <small style="color: #666; margin-top: 10px; display: block;">※ 赤枠内の図面から指定されたキーワードを含む文字列を検出・ハイライトします</small>
+            2. ターゲット画像（src/assets/images/target.png）と類似した画像を検出<br />
+            3. AI（Gemini）が自動的にターゲット画像と同じパターンを検出<br />
+            4. 検出結果を赤い矩形でハイライト表示<br />
+            <small style="color: #666; margin-top: 10px; display: block;">※ PDFから target.png（src/assets/images/target.png）に類似した画像パターンを検出してハイライトします</small>
           </div>
 
           <div class="upload-area" id="image-upload-area">
@@ -374,17 +422,38 @@
               <small style="color: #666; display: block; margin-top: 5px;">Proは高精度、Flashは高速処理が特徴です</small>
             </div>
             <div class="option-group">
-              <label for="keywords-setting">検出キーワード:</label>
-              <input type="text" id="keywords-setting" value="PF100,PF150" placeholder="検出したいキーワード（カンマ区切り）" style="width: 300px; padding: 5px 10px; border: 1px solid #ddd; border-radius: 4px;">
-              <small style="color: #666; display: block; margin-top: 5px;">検出したい文字列をカンマで区切って入力してください（例：PF100,PF150,ABC123）</small>
+              <label>ターゲット画像の選択:</label>
+              <div class="target-picker">
+                <div class="target-preview">
+                  <img id="current-target-preview" src="src/assets/images/target.png" alt="現在のターゲット画像プレビュー">
+                  <div>
+                    <div id="current-target-label" style="font-weight:600;">デフォルト画像（target.png）</div>
+                    <small id="current-target-desc" style="color:#666;">カスタム未指定。デフォルトの記号画像を使用します。</small>
+                  </div>
+                </div>
+                <div class="target-actions">
+                  <label for="target-image-file" class="target-select-btn">🖼️ カスタムターゲット画像を選択</label>
+                  <button type="button" id="clear-target-btn" class="clear-btn" title="選択をクリアしてデフォルトに戻す">クリア</button>
+                  <div><span class="file-name" id="target-file-name">未選択</span></div>
+                  <small style="color:#666; display:block; margin-top:6px;">指定しない場合はデフォルト（src/assets/images/target.png）を使用します</small>
+                </div>
+                <input type="file" id="target-image-file" accept="image/*" />
+              </div>
             </div>
             <div class="option-group">
               <label for="dpi-setting">DPI設定:</label>
-              <input type="number" id="dpi-setting" value="200" min="72" max="600" style="width: 80px; padding: 5px 10px; border: 1px solid #ddd; border-radius: 4px;">
+              <input type="number" id="dpi-setting" value="300" min="72" max="600" style="width: 80px; padding: 5px 10px; border: 1px solid #ddd; border-radius: 4px;">
               <small style="color: #666; margin-left: 10px;">画像の解像度（72-600）</small>
             </div>
+            <div class="option-group">
+              <label for="debug-flag">デバッグモード:</label>
+              <label style="display:inline-flex; align-items:center; gap:8px;">
+                <input type="checkbox" id="debug-flag" checked>
+                <span style="color:#666;">検出根拠・プロンプト等のデバッグ情報を表示（デフォルトON）</span>
+              </label>
+            </div>
             <button class="upload-btn" id="image-upload-btn" onclick="analyzePDF()">
-              ✨ PDFハイライト処理を実行
+              ✨ PDF記号検出処理を実行
             </button>
           </div>
 
@@ -393,7 +462,7 @@
           <!-- PDFプレビューコンテナ -->
           <div class="preview-container" id="pdf-preview-container" style="display: none;">
             <div class="preview-title">📖 PDFプレビュー</div>
-            <p style="color: #666; font-size: 14px; margin-bottom: 20px;">🖱️ 検出したいキーワードを確認できます。画像をクリックすると拡大表示されます</p>
+            <p style="color: #666; font-size: 14px; margin-bottom: 20px;">🖱️ 検出対象の図形を確認できます。画像をクリックすると拡大表示されます</p>
             <div id="pdf-preview-content"></div>
           </div>
 
@@ -405,6 +474,8 @@
             <div class="preview-title">🖼️ ハイライト結果プレビュー</div>
             <p style="color: #666; font-size: 14px; margin-bottom: 20px;">🖱️ 画像をクリックすると拡大表示されます</p>
             <div id="preview-content"></div>
+            <div class="preview-title" style="margin-top:28px;">🛠️ デバッグ情報</div>
+            <div id="debug-container" style="display:none; background:#fff3cd; color:#856404; border:1px solid #ffeeba; padding:16px; border-radius:8px; font-size:13px;"></div>
           </div>
         </div>
       </div>
@@ -443,6 +514,7 @@
         const uploadBtn = document.getElementById("image-upload-btn");
         const dpiInput = document.getElementById("dpi-setting");
         const modelInput = document.getElementById("model-setting");
+        const debugInput = document.getElementById("debug-flag");
 
         if (!fileInput.files[0]) {
           showStatus("image-status", "PDFファイルを選択してください", "error");
@@ -450,15 +522,15 @@
         }
 
         uploadBtn.disabled = true;
-        uploadBtn.textContent = "ハイライト処理中...";
+        uploadBtn.textContent = "記号検出処理中...";
         
         // プログレスバー付きの詳細なローディング表示
         const statusDiv = document.getElementById("image-status");
         statusDiv.innerHTML = `
           <div class="spinner"></div>
-          <div id="progress-text">PDFハイライト処理中...</div>
+          <div id="progress-text">PDF記号検出処理中...</div>
           <div style="margin-top: 10px; font-size: 12px; color: #666;" id="progress-details">
-            処理が完了するまでお待ちください。大きなPDFファイルや複数ページの場合、数分かかることがあります。
+            ターゲット画像と類似したパターンを検出中です。大きなPDFファイルや複数ページの場合、数分かかることがあります。
           </div>
         `;
         statusDiv.className = "status loading";
@@ -472,11 +544,16 @@
         const formData = new FormData();
         formData.append("file", fileInput.files[0]);
         
-        const keywordsInput = document.getElementById("keywords-setting");
-        const keywords = keywordsInput.value.trim() || "PF100,PF150"; // デフォルトはPF100,PF150
-        const dpi = dpiInput.value || 200;
+        // カスタムターゲット画像がある場合は追加
+        const targetImageInput = document.getElementById("target-image-file");
+        if (targetImageInput.files[0]) {
+          formData.append("target_image", targetImageInput.files[0]);
+        }
+        
+        const dpi = dpiInput.value || 300;
         const model = modelInput.value || "gemini-2.5-pro";
         const highlight = true; // 常にハイライトを有効にする
+        const debug = !!(debugInput && debugInput.checked);
 
         try {
           // 進捗表示のシミュレーション
@@ -484,9 +561,9 @@
           const progressSteps = [
             "PDFファイルを読み込み中...",
             "PDFを画像に変換中...",
-            "画像プレビューを作成中...",
-            "AI分析でキーワード検出中...",
-            "ハイライト処理中..."
+            "ターゲット記号画像を準備中...",
+            "AIが記号を検出中...",
+            "検出結果をハイライト処理中..."
           ];
           
           const progressInterval = setInterval(() => {
@@ -499,7 +576,7 @@
             }
           }, 2000); // 2秒ごとに進捗を更新
 
-          const response = await fetch(`${API_BASE_URL}/analyze-pdf?dpi=${dpi}&highlight=${highlight}&keywords=${encodeURIComponent(keywords)}&model=${encodeURIComponent(model)}`, {
+          const response = await fetch(`${API_BASE_URL}/analyze-pdf?dpi=${dpi}&highlight=${highlight}&model=${encodeURIComponent(model)}&debug=${debug}`, {
             method: "POST",
             body: formData,
           });
@@ -509,7 +586,7 @@
           if (response.ok) {
             const result = await response.json();
             
-            showStatus("image-status", "ハイライト処理完了！", "success");
+            showStatus("image-status", "記号検出処理完了！", "success");
             
             // 検出結果を表示
             if (result.detection_data) {
@@ -517,34 +594,17 @@
               const detectionDetailsDiv = document.getElementById("detection-details");
               
               let totalDetections = 0;
-              const keywordCounts = {};
               
               result.detection_data.forEach(pageData => {
                 if (pageData.summary) {
                   totalDetections += pageData.summary.total_detections || 0;
-                  result.keywords.forEach(keyword => {
-                    const key = keyword.toLowerCase().replace('φ', 'phi');
-                    keywordCounts[keyword] = (keywordCounts[keyword] || 0) + (pageData.summary[`${key}_count`] || 0);
-                  });
                 }
               });
               
               let summaryHTML = `<div style="text-align: center; margin-bottom: 15px;">
                 <div style="font-size: 24px; font-weight: bold; color: #155724;">${totalDetections}</div>
-                <div style="color: #155724;">total detections</div>
+                <div style="color: #155724;">個の記号を検出</div>
               </div>`;
-              
-              if (Object.keys(keywordCounts).length > 0) {
-                summaryHTML += `<div style="display: flex; gap: 30px; justify-content: center; text-align: center;">`;
-                Object.entries(keywordCounts).forEach(([keyword, count]) => {
-                  summaryHTML += `
-                    <div>
-                      <div style="font-size: 20px; font-weight: bold; color: #155724;">${count}</div>
-                      <div style="color: #155724; margin-top: 5px;">${keyword}</div>
-                    </div>`;
-                });
-                summaryHTML += `</div>`;
-              }
               
               detectionDetailsDiv.innerHTML = summaryHTML;
               detectionSummaryDiv.style.display = "block";
@@ -561,23 +621,19 @@
             // ハイライト画像のみを表示
             displayHighlightedImages();
             
+            // デバッグ情報を表示
+            try { displayDebugInfo(result, { dpi, model, highlight, debug }); } catch (e) { console.warn(e); }
+            
             // 分析情報を表示
             const infoDiv = document.createElement("div");
             infoDiv.style.cssText = "margin-top: 20px; padding: 15px; background: #e9ecef; border-radius: 8px; font-size: 14px; color: #666;";
             
-            let keywordsInfo = "";
-            if (result.keywords && result.keywords.length > 0) {
-              keywordsInfo = `
-                <strong>検出キーワード:</strong> ${result.keywords.join(', ')}<br>
-              `;
-            }
-            
             infoDiv.innerHTML = `
               <strong>ファイル名:</strong> ${result.filename}<br>
               <strong>ページ数:</strong> ${result.total_pages}<br>
-              ${keywordsInfo}
-              <strong>処理タイプ:</strong> ${result.analysis_type || "ハイライト処理"}<br>
-              <strong>DPI:</strong> ${result.dpi}
+              <strong>処理タイプ:</strong> ${result.analysis_type || "記号検出処理"}<br>
+              <strong>DPI:</strong> ${result.dpi}<br>
+              <strong>使用モデル:</strong> ${modelInput.value === 'gemini-2.5-pro' ? 'Gemini 2.5 Pro' : 'Gemini 2.5 Flash'}
             `;
             previewContent.appendChild(infoDiv);
             
@@ -588,12 +644,12 @@
         } catch (error) {
           showStatus(
             "image-status",
-"ハイライトAPIサーバーに接続できません。サーバーが起動していることを確認してください。",
+"記号検出APIサーバーに接続できません。サーバーが起動していることを確認してください。",
             "error"
           );
         } finally {
           uploadBtn.disabled = false;
-          uploadBtn.textContent = "✨ PDFハイライト処理を実行";
+          uploadBtn.textContent = "✨ PDF記号検出処理を実行";
         }
       }
 
@@ -601,6 +657,7 @@
       async function loadPDFPreview() {
         const fileInput = document.getElementById("image-pdf-file");
         const previewBtn = document.getElementById("pdf-preview-btn");
+        const debugInput = document.getElementById("debug-flag");
         
         if (!fileInput.files[0]) {
           showStatus("image-status", "PDFファイルを選択してください", "error");
@@ -624,11 +681,12 @@
         const formData = new FormData();
         formData.append("file", fileInput.files[0]);
         
-        const dpi = document.getElementById("dpi-setting").value || 200;
+        const dpi = document.getElementById("dpi-setting").value || 300;
+        const debug = !!(debugInput && debugInput.checked);
 
         try {
           // highlight=falseでプレビュー画像のみを取得
-          const response = await fetch(`${API_BASE_URL}/analyze-pdf?dpi=${dpi}&highlight=false`, {
+          const response = await fetch(`${API_BASE_URL}/analyze-pdf?dpi=${dpi}&highlight=false&debug=${debug}`, {
             method: "POST",
             body: formData,
           });
@@ -643,6 +701,9 @@
             
             // プレビューコンテナを表示
             displayPDFPreview(result);
+            
+            // デバッグ情報（プレビュー時は主にターゲット概要）
+            try { displayDebugInfo(result, { dpi, model: undefined, highlight: false, debug }); } catch (e) { console.warn(e); }
             
           } else {
             const errorData = await response.json();
@@ -782,6 +843,63 @@
       }
 
       setupDragAndDrop("image-upload-area", "image-pdf-file");
+
+      // ターゲット画像プレビュー/選択の制御
+      const DEFAULT_TARGET_PATH = "src/assets/images/target.png";
+      let customTargetURL = null;
+
+      function setTargetPreviewToDefault() {
+        const img = document.getElementById("current-target-preview");
+        const label = document.getElementById("current-target-label");
+        const desc = document.getElementById("current-target-desc");
+        const fileNameSpan = document.getElementById("target-file-name");
+        const input = document.getElementById("target-image-file");
+
+        if (customTargetURL) {
+          URL.revokeObjectURL(customTargetURL);
+          customTargetURL = null;
+        }
+        img.src = DEFAULT_TARGET_PATH;
+        label.textContent = "デフォルト画像（target.png）";
+        desc.textContent = "カスタム未指定。デフォルトの記号画像を使用します。";
+        fileNameSpan.textContent = "未選択";
+        input.value = "";
+      }
+
+      function updateTargetPreviewFromFile(file) {
+        const img = document.getElementById("current-target-preview");
+        const label = document.getElementById("current-target-label");
+        const desc = document.getElementById("current-target-desc");
+        const fileNameSpan = document.getElementById("target-file-name");
+
+        if (!file) {
+          setTargetPreviewToDefault();
+          return;
+        }
+
+        if (customTargetURL) URL.revokeObjectURL(customTargetURL);
+        customTargetURL = URL.createObjectURL(file);
+        img.src = customTargetURL;
+        label.textContent = "カスタム画像を使用中";
+        desc.textContent = "選択した画像で検出します。";
+        fileNameSpan.textContent = file.name;
+      }
+
+      // 変更イベント
+      const targetInputEl = document.getElementById("target-image-file");
+      targetInputEl.addEventListener("change", (e) => {
+        const file = e.target.files && e.target.files[0] ? e.target.files[0] : null;
+        updateTargetPreviewFromFile(file);
+      });
+
+      // クリアボタン
+      const clearBtn = document.getElementById("clear-target-btn");
+      clearBtn.addEventListener("click", () => {
+        setTargetPreviewToDefault();
+      });
+
+      // 初期表示はデフォルト
+      setTargetPreviewToDefault();
 
       // モーダル関連の機能
       let currentModalIndex = 0;
@@ -961,6 +1079,74 @@
         if (infoDiv) {
           previewContent.appendChild(infoDiv);
         }
+      }
+
+      // デバッグ情報表示
+      function displayDebugInfo(result, ctx) {
+        const debugEl = document.getElementById('debug-container');
+        if (!debugEl) return;
+
+        function esc(s) {
+          return String(s ?? '').replace(/[&<>]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch]));
+        }
+
+        const parts = [];
+        // リクエスト情報
+        parts.push(`<div style="margin-bottom:10px;">
+          <div><strong>リクエスト:</strong> model=${esc(ctx.model || result?.target_image_overview?.model || 'n/a')}, dpi=${esc(ctx.dpi)}, highlight=${String(ctx.highlight)}, debug=${String(ctx.debug)}</div>
+          <div><strong>ページ数:</strong> ${esc(result.total_pages)} / <strong>カスタムターゲット:</strong> ${String(result.custom_target_used)}</div>
+        </div>`);
+
+        // ターゲット概要
+        if (result.target_image_overview) {
+          const t = result.target_image_overview;
+          parts.push(`<div style="margin-bottom:10px;">
+            <div style="font-weight:600;">ターゲット画像の特徴</div>
+            <div style="white-space:pre-wrap;">${esc(t.description || '(取得失敗)')}</div>
+            <div style="color:#6c757d; font-size:12px;">source=${esc(t.source)} size=${esc(t.width)}x${esc(t.height)} model=${esc(t.model)}</div>
+          </div>`);
+        }
+
+        // ページごとの検出詳細
+        const pages = Array.isArray(result.detection_data) ? result.detection_data : [];
+        if (pages.length) {
+          parts.push('<div style="margin-top:6px; font-weight:600;">ページ別 詳細</div>');
+          pages.forEach((p, i) => {
+            const dets = Array.isArray(p.detections) ? p.detections : [];
+            parts.push(`<div style="margin-top:6px; padding:8px; background:#fff; border:1px solid #f8e5a6; border-radius:6px;">
+              <div style="font-weight:600;">ページ ${i+1}（検出数: ${esc(p?.summary?.total_detections ?? dets.length)}）</div>`);
+            if (dets.length) {
+              parts.push('<ul style="margin:6px 0 0 18px;">');
+              dets.slice(0, 20).forEach(d => {
+                const label = d.symbol_type || d.text || '記号';
+                const bbox = d.symbol_bbox || d.bbox || [];
+                const conf = d.confidence != null ? Number(d.confidence).toFixed(2) : 'n/a';
+                const rationale = d.rationale ? ` - 理由: ${esc(d.rationale)}` : '';
+                const feats = Array.isArray(d.matched_features) && d.matched_features.length ? ` - 特徴: ${d.matched_features.map(esc).join(', ')}` : '';
+                parts.push(`<li>${esc(label)} | conf=${conf} | bbox=${esc(JSON.stringify(bbox))}${rationale}${feats}</li>`);
+              });
+              if (dets.length > 20) parts.push('<li>...（以降は省略）</li>');
+              parts.push('</ul>');
+            } else {
+              parts.push('<div style="color:#6c757d;">検出なし</div>');
+            }
+
+            // プロンプト/生レスポンス
+            if (p._debug && (p._debug.prompt || p._debug.raw_response_text)) {
+              const raw = p._debug.raw_response_text || '';
+              const truncated = raw.length > 1200 ? raw.slice(0, 1200) + '\n...（以降省略）' : raw;
+              parts.push(`<details style="margin-top:6px;"><summary>モデル入出力の詳細を表示</summary>
+                <div style="margin-top:6px;"><div style="font-weight:600;">Prompt</div><pre style="white-space:pre-wrap;">${esc(p._debug.prompt)}</pre></div>
+                <div style="margin-top:6px;"><div style="font-weight:600;">Raw Response (truncated)</div><pre style="white-space:pre-wrap;">${esc(truncated)}</pre></div>
+              </details>`);
+            }
+
+            parts.push('</div>');
+          });
+        }
+
+        debugEl.innerHTML = parts.join('\n');
+        debugEl.style.display = 'block';
       }
     </script>
   </body>

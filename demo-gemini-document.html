@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gemini PDFドキュメント解析デモ</title>
+    <style>
+      :root {
+        --primary: #007bff;
+        --bg: #f5f7fb;
+        --card: #ffffff;
+        --text: #2c3e50;
+        --muted: #6c757d;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; padding: 0; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;
+        background: var(--bg); color: var(--text);
+      }
+      .container { max-width: 900px; margin: 0 auto; padding: 24px; }
+      h1 { font-size: 26px; text-align: center; margin: 10px 0 18px; }
+      .card { background: var(--card); border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.06); padding: 20px; }
+      .row { display: grid; grid-template-columns: 1fr; gap: 14px; }
+      .field { display: flex; flex-direction: column; gap: 6px; }
+      label { font-weight: 600; }
+      input[type="text"], select, textarea { padding: 10px 12px; border: 1px solid #dde3ea; border-radius: 8px; font: inherit; }
+      textarea { min-height: 96px; resize: vertical; }
+      .filebox { border: 2px dashed #dde3ea; padding: 22px; border-radius: 10px; text-align: center; background: #fbfdff; }
+      .filebox input[type="file"] { display: none; }
+      .filebox .btn { display: inline-block; padding: 10px 14px; border: 1px solid #dde3ea; border-radius: 8px; background: #f6f8fb; cursor: pointer; }
+      .btn-primary { background: var(--primary); color: #fff; border: none; padding: 12px 18px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+      .btn-primary:disabled { background: #b9d2fb; cursor: not-allowed; }
+      .actions { display: flex; gap: 10px; align-items: center; }
+      .status { display: none; margin-top: 14px; padding: 12px; border-radius: 8px; font-size: 14px; }
+      .status.loading { display: block; background: #e8f3ff; color: #0c5586; border: 1px solid #c7e2ff; }
+      .status.error { display: block; background: #ffe8e8; color: #721c24; border: 1px solid #ffcccc; }
+      .status.success { display: block; background: #e8f8ee; color: #155724; border: 1px solid #c7eed8; }
+      .result { white-space: pre-wrap; background: #0f172a; color: #e2e8f0; padding: 16px; border-radius: 10px; margin-top: 16px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+      small.muted { color: var(--muted); }
+      .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      @media (max-width: 720px) { .two { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>📝 Gemini PDFドキュメント解析デモ</h1>
+      <div class="card">
+        <div class="row">
+          <div class="field">
+            <label for="apiBase">APIベースURL</label>
+            <input id="apiBase" type="text" value="http://localhost:8000" />
+            <small class="muted">例: http://localhost:8000 （FastAPIを起動してから使用）</small>
+          </div>
+
+          <div class="field">
+            <label>PDFファイル</label>
+            <div class="filebox">
+              <label for="pdfFile" class="btn">ファイルを選択</label>
+              <input id="pdfFile" type="file" accept="application/pdf,.pdf" />
+              <div id="fileName" class="muted" style="margin-top:8px;">未選択</div>
+            </div>
+          </div>
+
+          <div class="two">
+            <div class="field">
+              <label for="model">モデル</label>
+              <select id="model">
+                <option value="gemini-2.5-pro">💪 gemini-2.5-pro（推奨）</option>
+                <option value="gemini-2.5-flash">⚡ gemini-2.5-flash（高速）</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="prompt">プロンプト</label>
+              <textarea id="prompt">このPDFは図面を表しています。100mm径パイプシャフト(PF100)か、防火ダンパー付き (FD付) の150mm径パイプシャフト (PF150) を各所探して、各ページ上の座標を教えてください。もし可能なら座標をx,y形式で教えてください。</textarea>
+            </div>
+          </div>
+
+          <div class="two">
+            <div class="field">
+              <label for="dpi">プレビューDPI</label>
+              <input id="dpi" type="number" value="200" min="72" max="600" />
+              <small class="muted">ハイライト画像の解像度</small>
+            </div>
+            <div class="field">
+              <label for="preview">プレビュー生成</label>
+              <select id="preview">
+                <option value="true">生成する</option>
+                <option value="false">生成しない（JSONのみ）</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="runBtn" class="btn-primary" onclick="analyze()">解析を実行</button>
+            <small class="muted">GeminiにPDFを直接送信して解析します</small>
+          </div>
+
+          <div id="status" class="status"></div>
+
+          <div id="resultCard" style="display:none;">
+            <h3 style="margin-top: 12px;">PDFプレビュー</h3>
+            <div id="pdfPreviewGrid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-bottom: 20px;"></div>
+            <h3 style="margin-top: 12px;">ハイライト付き画像</h3>
+            <div id="highlightedImagesGrid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-bottom: 20px;"></div>
+            <h3 style="margin-top: 12px;">結果</h3>
+            <div id="meta" class="muted" style="margin-bottom:8px;"></div>
+            <div id="result" class="result"></div>
+            <div id="previewWrap" style="display:none; margin-top:16px;">
+              <h3 style="margin: 16px 0 8px;">プレビュー</h3>
+              <div id="previewGrid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px;"></div>
+            </div>
+            <div id="pdfWrap" style="display:none; margin-top:16px;">
+              <h3 style="margin: 16px 0 8px;">PDFプレビュー</h3>
+              <div style="border:1px solid #e5e7eb; background:#fff; border-radius:8px; overflow:hidden;">
+                <iframe id="pdfViewer" title="Highlighted PDF" style="width:100%; height:640px; border:0;"></iframe>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const fileEl = document.getElementById('pdfFile');
+      const fileNameEl = document.getElementById('fileName');
+      fileEl.addEventListener('change', () => {
+        fileNameEl.textContent = fileEl.files[0] ? fileEl.files[0].name : '未選択';
+      });
+
+      function setStatus(type, msg) {
+        const el = document.getElementById('status');
+        el.className = `status ${type}`;
+        el.textContent = msg;
+        if (!msg) el.style.display = 'none'; else el.style.display = 'block';
+      }
+
+      async function analyze() {
+        const apiBase = document.getElementById('apiBase').value.trim().replace(/\/$/, '');
+        const model = document.getElementById('model').value;
+        const prompt = document.getElementById('prompt').value.trim();
+        const dpi = parseInt(document.getElementById('dpi').value || '200', 10);
+        const btn = document.getElementById('runBtn');
+
+        if (!fileEl.files[0]) {
+          setStatus('error', 'PDFファイルを選択してください');
+          return;
+        }
+
+        btn.disabled = true;
+        setStatus('loading', 'Geminiで解析中... PDFサイズによっては数十秒かかります');
+
+        const form = new FormData();
+        form.append('file', fileEl.files[0]);
+
+        const url = `${apiBase}/gemini/document-analyze?model=${encodeURIComponent(model)}&prompt=${encodeURIComponent(prompt)}&debug=false&dpi=${dpi}`;
+
+        try {
+          const res = await fetch(url, { method: 'POST', body: form });
+          if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`HTTP ${res.status}: ${text}`);
+          }
+          const data = await res.json();
+          document.getElementById('resultCard').style.display = 'block';
+          document.getElementById('meta').textContent = `file=${data.filename} | model=${data.model}`;
+          const pretty = typeof data.result === 'string' ? data.result : JSON.stringify(data.result, null, 2);
+          document.getElementById('result').textContent = pretty || '(空の応答)';
+
+          // PDFプレビュー表示
+          const pdfPreviewGrid = document.getElementById('pdfPreviewGrid');
+          pdfPreviewGrid.innerHTML = '';
+          if (Array.isArray(data.preview_images) && data.preview_images.length) {
+            data.preview_images.forEach(item => {
+              const card = document.createElement('div');
+              card.style.background = '#fff';
+              card.style.border = '1px solid #e9eef5';
+              card.style.borderRadius = '8px';
+              card.style.boxShadow = '0 2px 10px rgba(0,0,0,.05)';
+              card.style.overflow = 'hidden';
+
+              const img = document.createElement('img');
+              img.src = item.image_data;
+              img.alt = `page ${item.page}`;
+              img.style.width = '100%';
+              img.style.display = 'block';
+
+              const cap = document.createElement('div');
+              cap.style.padding = '8px 10px';
+              cap.style.fontSize = '13px';
+              cap.style.color = '#334155';
+              cap.textContent = `ページ ${item.page}`;
+
+              card.appendChild(img);
+              card.appendChild(cap);
+              pdfPreviewGrid.appendChild(card);
+            });
+          }
+
+          // ハイライト付き画像の表示
+          const highlightedImagesGrid = document.getElementById('highlightedImagesGrid');
+          highlightedImagesGrid.innerHTML = '';
+          if (Array.isArray(data.highlighted_images) && data.highlighted_images.length) {
+            data.highlighted_images.forEach(item => {
+              const card = document.createElement('div');
+              card.style.background = '#fff';
+              card.style.border = '1px solid #e9eef5';
+              card.style.borderRadius = '8px';
+              card.style.boxShadow = '0 2px 10px rgba(0,0,0,.05)';
+              card.style.overflow = 'hidden';
+
+              const img = document.createElement('img');
+              img.src = item.image_data;
+              img.alt = `highlighted page ${item.page}`;
+              img.style.width = '100%';
+              img.style.display = 'block';
+
+              const cap = document.createElement('div');
+              cap.style.padding = '8px 10px';
+              cap.style.fontSize = '13px';
+              cap.style.color = '#334155';
+              const detectionCount = item.detections ? item.detections.length : 0;
+              cap.innerHTML = `ページ ${item.page} - 検出数: <strong>${detectionCount}</strong>`;
+
+              card.appendChild(img);
+              card.appendChild(cap);
+              highlightedImagesGrid.appendChild(card);
+            });
+          }
+
+          // プレビュー表示
+          const wrap = document.getElementById('previewWrap');
+          const grid = document.getElementById('previewGrid');
+          grid.innerHTML = '';
+          if (Array.isArray(data.highlighted_images) && data.highlighted_images.length) {
+            data.highlighted_images.forEach(item => {
+              const card = document.createElement('div');
+              card.style.background = '#fff';
+              card.style.border = '1px solid #e9eef5';
+              card.style.borderRadius = '8px';
+              card.style.boxShadow = '0 2px 10px rgba(0,0,0,.05)';
+              card.style.overflow = 'hidden';
+
+              const img = document.createElement('img');
+              img.src = item.image_data;
+              img.alt = `page ${item.page}`;
+              img.style.width = '100%';
+              img.style.display = 'block';
+
+              const cap = document.createElement('div');
+              cap.style.padding = '8px 10px';
+              cap.style.fontSize = '13px';
+              cap.style.color = '#334155';
+              cap.textContent = `ページ ${item.page} / 検出数: ${item?.summary?.total_detections ?? 0}`;
+
+              card.appendChild(img);
+              card.appendChild(cap);
+              grid.appendChild(card);
+            });
+            wrap.style.display = 'block';
+          } else {
+            wrap.style.display = 'none';
+          }
+
+          // PDFプレビュー表示
+          const pdfWrap = document.getElementById('pdfWrap');
+          const pdfViewer = document.getElementById('pdfViewer');
+          if (data.highlighted_pdf) {
+            pdfViewer.src = data.highlighted_pdf;
+            pdfWrap.style.display = 'block';
+          } else {
+            pdfViewer.removeAttribute('src');
+            pdfWrap.style.display = 'none';
+          }
+          setStatus('success', '解析が完了しました');
+        } catch (err) {
+          console.error(err);
+          setStatus('error', `エラー: ${err.message}`);
+        } finally {
+          btn.disabled = false;
+        }
+      }
+    </script>
+  </body>
+  </html>

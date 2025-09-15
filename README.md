@@ -1,15 +1,18 @@
-# PDF Analysis API
+# 記号検出API
 
-Python 3.13とモダンなツールで構築された、PDF分析・画像変換用のFastAPIベースのREST API。Google Gemini 2.5 Pro による高度なAI文書分析機能を提供します。
+Python 3.13とモダンなツールで構築された、PDF内記号パターン検出用のFastAPIベースのREST API。Google Gemini 2.5 Pro/Flash による高度なAI記号認識機能を提供します。
 
 ## 機能
 
-- **AI文書分析**: Google Gemini 2.5 Pro による包括的なPDF内容分析
+- **AI記号認識**: Google Gemini 2.5 Pro/Flash による高精度記号パターン検出
+- **カスタムターゲット**: 任意の記号画像をアップロードして検出対象を指定
 - **PDF画像変換**: Popplerを使用したPDFから画像への高品質変換
-- **リアルタイムプレビュー**: Base64エンコード画像の即座表示
+- **リアルタイムプレビュー**: PDFプレビューとBase64エンコード画像の即座表示
+- **ハイライト機能**: 検出した記号を矩形ハイライトで表示
 - **複数ページ対応**: 大容量PDFの並列処理と個別ページ分析
-- **インタラクティブUI**: test-pdf-to-image.html によるWebインターフェース
-- **ファイルアップロード**: multipart/form-data形式でのPDFファイル受信
+- **インタラクティブUI**: モーダル表示、キーボードナビゲーション対応のWebインターフェース
+- **ファイルアップロード**: ドラッグ&ドロップ対応のMultipart/form-dataアップロード
+- **モデル選択**: Gemini ProとFlashの選択可能
 - **FastAPIフレームワーク**: 高性能で非同期処理対応のWeb API
 - **自動API文書化**: Swagger UI/ReDocによる対話的なAPI文書
 - **Docker対応**: コンテナ化された開発・本番環境
@@ -20,7 +23,7 @@ Python 3.13とモダンなツールで構築された、PDF分析・画像変換
 - Python 3.13+
 - uv（モダンなPythonパッケージマネージャー）
 - Docker/Docker Compose（Docker環境で実行する場合）
-- Google Gemini API Key（AI分析機能を使用する場合）
+- Google Gemini API Key（AI記号認識機能を使用する場合）
 - Poppler（PDF画像変換ライブラリ - Dockerに含まれています）
 
 ## インストール
@@ -79,7 +82,7 @@ APIのヘルスチェック用エンドポイント。Gemini API の利用可能
 **レスポンス:**
 ```json
 {
-  "message": "PDF Analysis API is running",
+  "message": "Symbol Detection API is running",
   "gemini_available": true,
   "status": "✅ Ready",
   "setup_help": null
@@ -92,41 +95,68 @@ curl http://localhost:8000/
 ```
 
 #### POST `/analyze-pdf`
-PDFファイルを画像に変換し、Gemini AIで包括的に分析します。
+PDFファイルを画像に変換し、Gemini AIで記号パターンを検出します。
 
 **リクエスト:**
 - Content-Type: `multipart/form-data`
 - Body: 
   - `file` (PDF ファイル) - 必須
+  - `target_image` (ターゲット画像 ファイル) - オプション
 - Query Parameters:
   - `dpi` (整数) - 画像解像度（デフォルト: 200）
-  - `prompt` (文字列) - 分析指示（デフォルト: "この文書について説明してください。"）
+  - `highlight` (ブール値) - ハイライト有効化（デフォルト: true）
+  - `model` (文字列) - Geminiモデル選択（デフォルト: "gemini-2.5-pro"）
 
 **レスポンス:**
 ```json
 {
   "filename": "example.pdf",
   "total_pages": 3,
-  "analysis": "文書の詳細な分析結果...",
-  "images": [
+  "total_detections": 5,
+  "analysis_summary": "記号検出結果の詳細...",
+  "pages": [
     {
       "page": 1,
-      "image_data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgA..."
+      "detections": 2,
+      "coordinates": [
+        {"x1": 100, "y1": 150, "x2": 200, "y2": 250, "confidence": 0.95}
+      ],
+      "original_image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgA...",
+      "highlighted_image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgA..."
     }
   ],
-  "prompt": "この文書について説明してください。",
+  "model_used": "gemini-2.5-pro",
   "dpi": 200
+}
+```
+
+補足: 読み込み確認のため、ターゲット画像の特徴説明が `target_image_overview` に含まれます。
+
+```json
+{
+  "target_image_overview": {
+    "source": "custom | default",
+    "width": 128,
+    "height": 128,
+    "model": "gemini-2.5-pro",
+    "description": "・円形の外枠 … のような特徴\n・中央に十字 … など"
+  }
 }
 ```
 
 **例:**
 ```bash
-# 基本的な分析
+# 基本的な記号検出
 curl -X POST "http://localhost:8000/analyze-pdf" \
   -F "file=@example.pdf"
 
-# カスタムプロンプトで分析
-curl -X POST "http://localhost:8000/analyze-pdf?prompt=この文書の要点を3つ挙げてください&dpi=300" \
+# カスタムターゲットで検出
+curl -X POST "http://localhost:8000/analyze-pdf?dpi=300&model=gemini-2.5-flash" \
+  -F "file=@example.pdf" \
+  -F "target_image=@custom_symbol.png"
+
+# ハイライトなしで検出のみ
+curl -X POST "http://localhost:8000/analyze-pdf?highlight=false" \
   -F "file=@example.pdf"
 ```
 
@@ -174,10 +204,15 @@ pytest
 ```
 pdf-highlight-api/
 ├── src/
+│   ├── __init__.py             # パッケージ初期化
 │   ├── infrastructure/
-│   │   └── gemini.py          # Gemini 2.5 Pro API連携サービス
+│   │   ├── __init__.py         # パッケージ初期化
+│   │   └── gemini.py          # Gemini 2.5 Pro/Flash API連携サービス
+│   ├── assets/
+│   │   └── images/
+│   │       └── target.png     # デフォルトターゲット画像
 │   └── main.py                # FastAPIアプリケーションエントリーポイント
-├── test-pdf-to-image.html     # インタラクティブWebテストインターフェース
+├── test-pdf-to-image.html     # 記号検出インタラクティブWebインターフェース
 ├── pyproject.toml             # プロジェクト設定と依存関係（uv形式）
 ├── .python-version            # Python 3.13バージョン指定
 ├── .env.example               # 環境変数のサンプル（GEMINI_API_KEY）
@@ -192,7 +227,7 @@ pdf-highlight-api/
 
 - **フレームワーク**: FastAPI（高性能Web API）
 - **ASGIサーバー**: Uvicorn（非同期処理対応）
-- **AI分析エンジン**: Google Gemini 2.5 Pro（最新の多モーダルAI）
+- **AI分析エンジン**: Google Gemini 2.5 Pro/Flash（最新の多モーダルAI）
 - **PDF画像変換**: pdf2image + Poppler（高品質なPDFから画像への変換）
 - **画像処理**: Pillow（Base64エンコード、リサイズ、フォーマット変換）
 - **ファイル処理**: python-multipart（ファイルアップロード）
@@ -204,7 +239,7 @@ pdf-highlight-api/
 ## セットアップ手順
 
 ### 環境変数の設定
-AI分析機能を使用するには、Google Gemini API Keyが必要です：
+AI記号認識機能を使用するには、Google Gemini API Keyが必要です：
 
 1. `.env.example` を `.env` にコピー:
 ```bash
@@ -219,25 +254,28 @@ GEMINI_API_KEY=your_api_key_here
 3. API キーの取得: [Google AI Studio](https://makersuite.google.com/app/apikey)
 
 ### Webインターフェースの使用
-`test-pdf-to-image.html` を開いてインタラクティブなWebインターフェースを使用できます：
+`test-pdf-to-image.html` を開いて記号検出用インタラクティブWebインターフェースを使用できます：
 
 1. APIサーバーを起動
 2. ブラウザで `test-pdf-to-image.html` を開く
 3. PDFファイルをドラッグ&ドロップまたは選択
-4. 分析プロンプトとDPI設定を調整
-5. 「PDFを分析」ボタンをクリック
+4. オプションでカスタムターゲット画像をアップロード
+5. Geminiモデル、DPI設定、ハイライトオプションを調整
+6. 「記号を検出」ボタンをクリック
+7. PDFプレビューで内容を確認後、検出を実行
 
 ## 今後の開発
 
-PDF分析機能は実装済みです。今後の拡張予定:
-- PDFハイライト機能の追加（PyMuPDF統合）
-- 複数分析タイプ（要約、重要ポイント抽出、テキスト抽出）
-- 画像変換の詳細オプション（フォーマット選択、品質調整など）
-- 特定ページの個別変換機能
+記号検出機能は実装済みです。今後の拡張予定:
+- 文字認識ベースのテキスト検出（OCR連携）
+- 複数記号パターンの同時検出
+- 検出結果のエクスポート機能（JSON, CSV, PDFレポート）
+- 特定ページの個別処理機能
 - 永続化ストレージのためのデータベース統合
 - 認証と認可システム
 - バッチ処理（複数ファイル同時処理）
-- 変換結果のメタデータ出力
+- 連続処理のためのキューシステム
+- リアルタイムストリーミング処理
 
 ## 貢献
 
